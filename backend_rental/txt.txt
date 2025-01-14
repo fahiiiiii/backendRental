@@ -1,0 +1,1646 @@
+You
+
+make the code work so that it can :using the output cities names in wishlistName:"New York" you craeted the city names ,now you are gonna extract all the propertis =>name:"World Center Hotel" =World Center Hotel from the api and key : curl --request GET --url 'https://booking-com18.p.rapidapi.com/stays/search?locationId=eyJjaXR5X25hbWUiOiJOZXcgWW9yayIsImNvdW50cnkiOiJVbml0ZWQgU3RhdGVzIiwiZGVzdF9pZCI6IjIwMDg4MzI1IiwiZGVzdF90eXBlIjoiY2l0eSJ9&checkinDate=2025-01-08&checkoutDate=2025-01-15&units=metric&temperature=c' --header 'x-rapidapi-host: booking-com18.p.rapidapi.com' --header 'x-rapidapi-key: 47ae2e1dd1mshc33c535e5f35902p1c98e3jsn28a41b10eef3'
+
+data:0: ufi:20088325 checkoutDate:"2025-01-15" reviewScoreWord:"Very Good" longitude:-74.0138518810272 blockIds: isPreferred:true checkout: countryCode:"us" latitude:40.709814377365 wishlistName:"New York" priceBreakdown: photoUrls: isFirstPage:true optOutFromGalleryChanges:0 rankingPosition:0 accuratePropertyClass:4 name:"World Center Hotel"
+
+my code: package main
+
+import ( "encoding/json" "fmt" "io" "log" "net/http" "os" "strings" "sync" )
+
+//! Existing City struct remains the same // City struct to match the API response type City struct { CC1 string json:"cc1" ImageURL string json:"image_url" Longitude float64 json:"longitude" CityName string json:"city_name" DestID string json:"dest_id" Timezone string json:"timezone" Hotels int json:"hotels" Label string json:"label" Country string json:"country" Region string json:"region" DestType string json:"dest_type" Name string json:"name" Latitude float64 json:"latitude" Type string json:"type" }
+
+// New Property struct type Property struct { UFI int64 json:"ufi" CheckoutDate string json:"checkoutDate" ReviewScoreWord string json:"reviewScoreWord" Longitude float64 json:"longitude" IsPreferred bool json:"isPreferred" CountryCode string json:"countryCode" Latitude float64 json:"latitude" WishlistName string json:"wishlistName" Name string json:"name" PropertyClass float64 json:"accuratePropertyClass" }
+
+// Global maps to track properties var ( uniqueCountries = make(map[string]bool) uniqueCities = make(map[string]bool) countryCities = make(map[string][]string) cityProperties = make(map[string][]string) mutex sync.Mutex )
+
+//! Existing functions remain the same...
+
+// Function to generate queries dynamically func generateQueries() []string { // Start with a comprehensive list of alphabet and common prefixes queries := []string{}
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Alphabet queries
+for char := 'A'; char <= 'Z'; char++ {
+	queries = append(queries, string(char))
+}
+
+// Common prefixes and patterns
+prefixes := []string{
+	"a", "the", "new", "old", "big", "small", 
+	"north", "south", "east", "west", "central",
+}
+
+for _, prefix := range prefixes {
+	queries = append(queries, prefix)
+}
+
+return queries
+}
+
+// Function to fetch cities from Booking.com API func fetchCities(query string) ([]City, error) { // Encode the query parameter apiURL := fmt.Sprintf("https://booking-com18.p.rapidapi.com/stays/auto-complete?query=%s", query)
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Create a new HTTP request
+req, err := http.NewRequest("GET", apiURL, nil)
+if err != nil {
+	return nil, fmt.Errorf("error creating request: %v", err)
+}
+
+// Set headers
+req.Header.Add("x-rapidapi-host", "booking-com18.p.rapidapi.com")
+req.Header.Add("x-rapidapi-key", "47ae2e1dd1mshc33c535e5f35902p1c98e3jsn28a41b10eef3")
+
+// Create HTTP client and send request
+client := &http.Client{}
+resp, err := client.Do(req)
+if err != nil {
+	return nil, fmt.Errorf("error sending request: %v", err)
+}
+defer resp.Body.Close()
+
+// Read response body
+body, err := io.ReadAll(resp.Body)
+if err != nil {
+	return nil, fmt.Errorf("error reading response body: %v", err)
+}
+
+// Check response status
+if resp.StatusCode != http.StatusOK {
+	return nil, fmt.Errorf("API request failed with status code: %d, body: %s", 
+		resp.StatusCode, string(body))
+}
+
+// Parse JSON response
+var citiesResp struct {
+	Data []City `json:"data"`
+}
+err = json.Unmarshal(body, &citiesResp)
+if err != nil {
+	return nil, fmt.Errorf("error parsing JSON: %v", err)
+}
+
+return citiesResp.Data, nil
+}
+
+// Function to process cities and update global maps func processCities(query string, results chan<- struct{}) { defer func() { results <- struct{}{} }()
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+cities, err := fetchCities(query)
+if err != nil {
+	log.Printf("Error fetching cities for query '%s': %v", query, err)
+	return
+}
+
+mutex.Lock()
+defer mutex.Unlock()
+
+for _, city := range cities {
+	// Normalize country and city names
+	country := strings.TrimSpace(strings.ToUpper(city.Country))
+	cityName := strings.TrimSpace(strings.ToUpper(city.CityName))
+
+	// Track unique countries
+	if country != "" {
+		uniqueCountries[country] = true
+	}
+
+	// Track unique cities
+	if cityName != "" {
+		uniqueCities[cityName] = true
+	}
+
+	// Track cities per country
+	if country != "" && cityName != "" {
+		if _, exists := countryCities[country]; !exists {
+			countryCities[country] = []string{}
+		}
+		
+		// Avoid duplicate cities
+		cityExists := false
+		for _, existingCity := range countryCities[country] {
+			if existingCity == cityName {
+				cityExists = true
+				break
+			}
+		}
+		
+		if !cityExists {
+			countryCities[country] = append(countryCities[country], cityName)
+		}
+	}
+}
+}
+
+// Function to save JSON summary to file func saveJSONSummary(summaryJSON []byte) error { return os.WriteFile("city_summary.json", summaryJSON, 0644) }
+
+// Utility function to get minimum of two integers func min(a, b int) int { if a < b { return a } return b }
+
+// New function to fetch properties for a specific location // Function to fetch properties for a specific location func fetchPropertiesForCity(cityName, country string) ([]Property, error) { // Construct query to get location details first query := fmt.Sprintf("%s, %s", cityName, country)
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// First, fetch the location details
+cities, err := fetchCities(query)
+if err != nil {
+	return nil, fmt.Errorf("error finding location for %s: %v", query, err)
+}
+
+// Find the matching city
+var locationID string
+for _, city := range cities {
+	if strings.EqualFold(city.CityName, cityName) && 
+	   strings.EqualFold(city.Country, country) {
+		locationID = city.DestID
+		break
+	}
+}
+
+// If no location ID found, return empty list
+if locationID == "" {
+	log.Printf("No location ID found for %s, %s", cityName, country)
+	return []Property{}, nil
+}
+
+// Construct API URL for properties
+apiURL := fmt.Sprintf(
+	"https://booking-com18.p.rapidapi.com/stays/search?locationId=%s&checkinDate=2025-01-08&checkoutDate=2025-01-15&units=metric&temperature=c", 
+	locationID,
+)
+
+// Create a new HTTP request
+req, err := http.NewRequest("GET", apiURL, nil)
+if err != nil {
+	return nil, fmt.Errorf("error creating request: %v", err)
+}
+
+// Set headers
+req.Header.Add("x-rapidapi-host", "booking-com18.p.rapidapi.com")
+req.Header.Add("x-rapidapi-key", "47ae2e1dd1mshc33c535e5f35902p1c98e3jsn28a41b10eef3")
+
+// Create HTTP client and send request
+client := &http.Client{}
+resp, err := client.Do(req)
+if err != nil {
+	return nil, fmt.Errorf("error sending request: %v", err)
+}
+defer resp.Body.Close()
+
+// Read response body
+body, err := io.ReadAll(resp.Body)
+if err != nil {
+	return nil, fmt.Errorf("error reading response body: %v", err)
+}
+
+// Check response status
+if resp.StatusCode != http.StatusOK {
+	// Log the full response body for debugging
+	log.Printf("API response for %s: %s", query, string(body))
+	return []Property{}, nil
+}
+
+// Parse JSON response
+var propertiesResp struct {
+	Data []Property `json:"data"`
+}
+err = json.Unmarshal(body, &propertiesResp)
+if err != nil {
+	return nil, fmt.Errorf("error parsing JSON: %v", err)
+}
+
+return propertiesResp.Data, nil
+}
+
+// Function to process properties for cities func processPropertiesForCities() { // Create a channel for concurrent processing type CityKey struct { Name string Country string }
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Buffered channel to control concurrency
+propertyResults := make(chan struct {
+	City       CityKey
+	Properties []Property
+	Err        error
+}, len(uniqueCities))
+
+// Track processed cities
+processedCities := 0
+
+// Process cities concurrently
+for country, cities := range countryCities {
+	for _, cityName := range cities {
+		processedCities++
+		go func(city, country string) {
+			properties, err := fetchPropertiesForCity(city, country)
+			propertyResults <- struct {
+				City       CityKey
+				Properties []Property
+				Err        error
+			}{
+				City:       CityKey{Name: city, Country: country},
+				Properties: properties,
+				Err:        err,
+			}
+		}(cityName, country)
+	}
+}
+
+// Collect results
+for i := 0; i < processedCities; i++ {
+	result := <-propertyResults
+	
+	// Skip if no properties or error
+	if result.Err != nil || len(result.Properties) == 0 {
+		log.Printf("No properties found for %s, %s", result.City.Name, result.City.Country)
+		continue
+	}
+
+	// Store properties
+	mutex.Lock()
+	cityProperties[result.City.Name] = []string{}
+	for _, prop := range result.Properties {
+		cityProperties[result.City.Name] = append(cityProperties[result.City.Name], prop.Name)
+	}
+	mutex.Unlock()
+}
+}
+
+// Utility function to generate location ID (you might need to adjust this) func generateLocationID(cityName, country string) string { // This is a placeholder - you'll need to implement proper location ID generation return fmt.Sprintf("eyJjaXR5X25hbWUiOiIlc1wiLCJjb3VudHJ5XCI6XCIlc1wiLCJkZXN0X2lkXCI6XCIyMDA4ODMyNVwiLCJkZXN0X3R5cGVcIjpcImNpdHlcIn0=", cityName, country) } func main() { // Existing main function code for city extraction... queries := generateQueries()
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Channel for tracking goroutine completion
+results := make(chan struct{}, len(queries))
+
+// Limit concurrent goroutines to prevent overwhelming the API
+semaphore := make(chan struct{}, 10)
+
+// Process queries
+for _, query := range queries {
+	semaphore <- struct{}{}
+	go func(q string) {
+		defer func() { <-semaphore }()
+		processCities(q, results)
+	}(query)
+}
+
+// Wait for all queries to complete
+for range queries {
+	<-results
+}
+
+// Print detailed results
+fmt.Println("Extraction Summary:")
+fmt.Println("-------------------")
+fmt.Printf("Total Unique Countries: %d\n", len(uniqueCountries))
+fmt.Printf("Total Unique Cities: %d\n", len(uniqueCities))
+
+// Print countries and their cities
+fmt.Println("\nCountries and Cities:")
+for country, cities := range countryCities {
+	fmt.Printf("%s (%d cities):\n", country, len(cities))
+	for _, city := range cities {
+		fmt.Printf("  - %s\n", city)
+	}
+	fmt.Println()
+}
+
+// After city extraction, process properties
+processPropertiesForCities()
+// Print properties for each city
+fmt.Println("\nProperties by City:")
+for city, properties := range cityProperties {
+	fmt.Printf("%s (%d properties):\n", city, len(properties))
+	for _, propName := range properties {
+		fmt.Printf("  - %s\n", propName)
+	}
+	fmt.Println()
+}
+
+
+// Prepare final summary data
+var summaryData = struct {
+	Countries      map[string]bool            `json:"countries"`
+	Cities         map[string]bool            `json:"cities"`
+	CountryCities  map[string][]string        `json:"country_cities"`
+	CityProperties map[string][]string        `json:"city_properties"`
+}{
+	Countries:      uniqueCountries,
+	Cities:         uniqueCities,
+	CountryCities:  countryCities,
+	CityProperties: cityProperties,
+}
+
+// Convert to JSON
+var summaryJSON []byte
+summaryJSON, err := json.MarshalIndent(summaryData, "", "  ")
+if err != nil {
+	log.Fatalf("Failed to create JSON summary: %v", err)
+}
+
+// Save JSON to file
+err = saveJSONSummary(summaryJSON)
+if err != nil {
+	log.Printf("Failed to save JSON summary: %v", err)
+} else {
+	fmt.Println("JSON Summary saved to city_summary.json")
+}
+
+// Optional: Print a snippet of the JSON
+fmt.Println("\nJSON Summary Snippet:")
+fmt.Println(string(summaryJSON[:min(len(summaryJSON), 500)]))
+}
+
+BLACKBOXAI
+
+To make your code work for extracting properties from the Booking.com API based on the city names in the wishlistName (e.g., "New York"), you need to ensure that the fetchPropertiesForCity function is called correctly after the cities have been processed.
+
+Here’s a step-by-step breakdown of what you need to do:
+
+Ensure the fetchPropertiesForCity function is called with the correct parameters. You need to pass the city name and country to this function.
+
+Modify the processPropertiesForCities function to only fetch properties for cities that match the wishlistName. This means you should filter the cities based on the wishlistName before fetching properties.
+
+Print the properties for the specified city after fetching them.
+
+Here’s the modified code with the necessary changes:
+
+go
+
+Verify
+
+Open In Editor
+Run
+Copy code
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+)
+
+// City struct to match the API response
+type City struct {
+	CC1      string  `json:"cc1"`
+	ImageURL string  `json:"image_url"`
+	Longitude float64 `json:"longitude"`
+	CityName  string  `json:"city_name"`
+	DestID    string  `json:"dest_id"`
+	Timezone  string  `json:"timezone"`
+	Hotels    int     `json:"hotels"`
+	Label     string  `json:"label"`
+	Country   string  `json:"country"`
+	Region    string  `json:"region"`
+	DestType  string  `json:"dest_type"`
+	Name      string  `json:"name"`
+	Latitude  float64 `json:"latitude"`
+	Type      string  `json:"type"`
+}
+
+// Property struct to match the API response
+type Property struct {
+	UFI             int64   `json:"ufi"`
+	CheckoutDate    string  `json:"checkoutDate"`
+	ReviewScoreWord string  `json:"reviewScoreWord"`
+	Longitude       float64 `json:"longitude"`
+	IsPreferred     bool    `json:"isPreferred"`
+	CountryCode     string  `json:"countryCode"`
+	Latitude        float64 `json:"latitude"`
+	WishlistName    string  `json:"wishlistName"`
+	Name            string  `json:"name"`
+	PropertyClass   float64 `json:"accuratePropertyClass"`
+}
+
+// Global maps to track properties
+var (
+	uniqueCountries = make(map[string]bool)
+	uniqueCities    = make(map[string]bool)
+	countryCities   = make(map[string][]string)
+	cityProperties  = make(map[string][]string)
+	mutex           sync.Mutex
+)
+
+// Function to fetch properties for a specific location
+func fetchPropertiesForCity(cityName, country string) ([]Property, error) {
+	// Construct query to get location details first
+	query := fmt.Sprintf("%s, %s", cityName, country)
+
+	// First, fetch the location details
+	cities, err := fetchCities(query)
+	if err != nil {
+		return nil, fmt.Errorf("error finding location for %s: %v", query, err)
+	}
+
+	// Find the matching city
+	var locationID string
+	for _, city := range cities {
+		if strings.EqualFold(city.CityName, cityName) && 
+		   strings.EqualFold(city.Country, country) {
+			locationID = city.DestID
+			break
+		}
+	}
+
+	// If no location ID found, return empty list
+	if locationID == "" {
+		log.Printf("No location ID found for %s, %s", cityName, country)
+		return []Property{}, nil
+	}
+
+	// Construct API URL for properties
+	apiURL := fmt.Sprintf(
+		"https://booking-com18.p.rapidapi.com/stays/search?locationId=%s&checkinDate=2025-01-08&checkoutDate=2025-01-15&units=metric&temperature=c", 
+		locationID,
+	)
+
+	// Create a new HTTP request
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+
+	// Set headers
+	req.Header.Add("x-rapidapi-host", "booking-com18.p.rapidapi.com")
+	req.Header.Add("x-rapidapi-key", "47ae2e1dd1mshc33c535e5f35902p1c98e3jsn28a41b10eef3")
+
+	// Create HTTP client and send request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error sending request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response body: %
+You
+
+Is it fetching the property id 's? // controllers/booking_controller.go package controllers
+
+import ( "encoding/json" "fmt" "io" "log" "net/http" "net/url" "strings" "sync" "time" "math" "property-listing/conf" "property-listing/models" // You'll need to adjust this import path based on your module name "golang.org/x/time/rate" "context" "github.com/joho/godotenv" "os" // "gorm.io/gorm" // "regexp" // "strconv"
+
+)
+
+// BookingController handles all booking.com API related operations // type BookingController struct { // uniqueCountries map[string]bool // uniqueCities map[string]bool // countryCities map[string][]string // cityProperties map[string][]string // mutex sync.Mutex // } type BookingController struct { uniqueCountries map[string]bool uniqueCities map[string]bool countryCities map[string][]string cityProperties map[string][]string mutex sync.Mutex rateLimiter *rate.Limiter rapidAPIKey string //!added rapidApiKey } // NewBookingController creates a new instance of BookingController func NewBookingController() *BookingController { // Load environment variables from .env file err := godotenv.Load() if err != nil { log.Fatalf("Error loading .env file") }
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Get the RapidAPI key from the environment variable
+rapidAPIKey := os.Getenv("RAPIDAPI_KEY")
+if rapidAPIKey == "" {
+	log.Fatalf("RAPIDAPI_KEY is not set in the environment")
+}
+
+//! Created a rate limiter with 5 requests per minute
+// The first parameter (5) is the rate limit
+// The second parameter (1) is the burst size
+return &BookingController{
+    uniqueCountries: make(map[string]bool),
+    uniqueCities:    make(map[string]bool),
+    countryCities:   make(map[string][]string),
+    cityProperties:  make(map[string][]string),
+    rateLimiter:    rate.NewLimiter(rate.Every(12*time.Second), 1), // 5 requests per minute = 1 request per 12 seconds
+	rapidAPIKey:     rapidAPIKey, //! Initialize the rapidAPIKey field
+}
+} //! helper method for rate-limited requests func (c *BookingController) makeRateLimitedRequest(req *http.Request) (*http.Response, error) { // Wait for rate limiter err := c.rateLimiter.Wait(context.Background()) if err != nil { return nil, fmt.Errorf("rate limiter error: %v", err) }
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+client := &http.Client{
+    Timeout: 10 * time.Second,
+}
+return client.Do(req)
+} // GetSummary returns the current state of all data func (c *BookingController) GetSummary() interface{} { return struct { Countries map[string]bool json:"countries" Cities map[string]bool json:"cities" CountryCities map[string][]string json:"country_cities" CityProperties map[string][]string json:"city_properties" }{ Countries: c.uniqueCountries, Cities: c.uniqueCities, CountryCities: c.countryCities, CityProperties: c.cityProperties, } }
+
+//! Modified ProcessAllCities to limit concurrent requests func (c *BookingController) ProcessAllCities() error { queries := c.generateQueries() results := make(chan struct{}, len(queries))
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Reduce concurrent requests to 1 to better control rate limiting
+semaphore := make(chan struct{}, 1)
+
+for _, query := range queries {
+    semaphore <- struct{}{}
+    go func(q string) {
+        defer func() { <-semaphore }()
+        c.processCities(q, results)
+    }(query)
+}
+
+// Wait for all queries to complete
+for range queries {
+    <-results
+}
+
+return nil
+}
+
+// ProcessAllProperties processes properties for all cities func (c *BookingController) ProcessAllProperties() error { return c.processPropertiesForCities() }
+
+// Private methods
+
+func (c *BookingController) generateQueries() []string { queries := []string{}
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Alphabet queries
+for char := 'A'; char <= 'Z'; char++ {
+	queries = append(queries, string(char))
+}
+
+// Common prefixes and patterns
+prefixes := []string{
+	"a", "the", "new", "old", "big", "small", 
+	"north", "south", "east", "west", "central",
+}
+
+for _, prefix := range prefixes {
+	queries = append(queries, prefix)
+}
+
+return queries
+}
+
+func (c *BookingController) processCities(query string, results chan<- struct{}) { defer func() { results <- struct{}{} }()
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+cities, err := c.fetchCities(query)
+if err != nil {
+	log.Printf("Error fetching cities for query '%s': %v", query, err)
+	return
+}
+
+c.mutex.Lock()
+defer c.mutex.Unlock()
+
+for _, city := range cities {
+	country := strings.TrimSpace(strings.ToUpper(city.Country))
+	cityName := strings.TrimSpace(strings.ToUpper(city.CityName))
+
+	if country != "" {
+		c.uniqueCountries[country] = true
+	}
+
+	if cityName != "" {
+		c.uniqueCities[cityName] = true
+	}
+
+	if country != "" && cityName != "" {
+		if _, exists := c.countryCities[country]; !exists {
+			c.countryCities[country] = []string{}
+		}
+		
+		cityExists := false
+		for _, existingCity := range c.countryCities[country] {
+			if existingCity == cityName {
+				cityExists = true
+				break
+			}
+		}
+		
+		if !cityExists {
+			c.countryCities[country] = append(c.countryCities[country], cityName)
+		}
+	}
+}
+}
+
+func (c *BookingController) fetchCities(query string) ([]models.City, error) {
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+//!using rate limit
+apiURL := fmt.Sprintf("https://booking-com18.p.rapidapi.com/stays/auto-complete?query=%s", query)
+
+req, err := http.NewRequest("GET", apiURL, nil)
+if err != nil {
+    return nil, fmt.Errorf("error creating request: %v", err)
+}
+
+req.Header.Add("x-rapidapi-host", "booking-com18.p.rapidapi.com")
+req.Header.Add("x-rapidapi-key", c.rapidAPIKey) // Use the stored RapidAPI key
+// req.Header.Add("x-rapidapi-key", "79d933f58amsh0baa13f673b03f0p16d4a2jsnb299a967d295")
+
+resp, err := c.makeRateLimitedRequest(req)
+if err != nil {
+    return nil, fmt.Errorf("error sending request: %v", err)
+}
+defer resp.Body.Close()
+
+body, err := io.ReadAll(resp.Body)
+if err != nil {
+	return nil, fmt.Errorf("error reading response body: %v", err)
+}
+
+if resp.StatusCode != http.StatusOK {
+	return nil, fmt.Errorf("API request failed with status code: %d, body: %s", 
+		resp.StatusCode, string(body))
+}
+
+var citiesResp struct {
+	Data []models.City `json:"data"`
+}
+err = json.Unmarshal(body, &citiesResp)
+if err != nil {
+	return nil, fmt.Errorf("error parsing JSON: %v", err)
+}
+
+return citiesResp.Data, nil
+}
+
+func (c *BookingController) processPropertiesForCities() error { //!using limit for req propertyResults := make(chan struct { City models.CityKey Properties []models.Property Err error }, len(c.uniqueCities))
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Reduce concurrent requests to 1 to better control rate limiting
+semaphore := make(chan struct{}, 1)
+var wg sync.WaitGroup
+
+for country, cities := range c.countryCities {
+    for _, cityName := range cities {
+        wg.Add(1)
+        
+        go func(city, country string) {
+            defer wg.Done()
+            
+            semaphore <- struct{}{} 
+            defer func() { <-semaphore }()
+
+            properties, err := c.fetchPropertiesWithRetry(city, country, 3)
+            
+            propertyResults <- struct {
+                City       models.CityKey
+                Properties []models.Property
+                Err        error
+            }{
+                City:       models.CityKey{Name: city, Country: country},
+                Properties: properties,
+                Err:        err,
+            }
+        }(cityName, country)
+    }
+}
+
+go func() {
+	wg.Wait()
+	close(propertyResults)
+}()
+
+for result := range propertyResults {
+	if result.Err != nil {
+		log.Printf("Error fetching properties for %s, %s: %v", 
+			result.City.Name, result.City.Country, result.Err)
+		continue
+	}
+
+	c.processPropertyResult(result)
+}
+
+return nil
+}
+
+func (c *BookingController) processPropertyResult(result struct { City models.CityKey Properties []models.Property Err error }) { if len(result.Properties) == 0 { return }
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+c.mutex.Lock()
+defer c.mutex.Unlock()
+
+c.cityProperties[result.City.Name] = []string{}
+
+maxProperties := 20
+if len(result.Properties) < maxProperties {
+	maxProperties = len(result.Properties)
+}
+
+// for _, prop := range result.Properties[:maxProperties] {
+// 	c.cityProperties[result.City.Name] = append(
+// 		c.cityProperties[result.City.Name], 
+// 		fmt.Sprintf("%s (Score: %s, Class: %.1f, City: %s, Country: %s)", 
+// 			prop.Name, 
+// 			prop.ReviewScoreWord, 
+// 			prop.PropertyClass,
+// 			prop.CityName,
+// 			prop.Country,
+// 		),
+// 	)
+// }
+for _, prop := range result.Properties[:maxProperties] {
+	// Store only the property name without additional details
+	c.cityProperties[result.City.Name] = append(
+		c.cityProperties[result.City.Name], 
+		prop.Name, // Only store the property name
+	)
+}
+}
+
+func (c *BookingController) fetchPropertiesWithRetry(cityName, country string, maxRetries int) ([]models.Property, error) { for attempt := 0; attempt < maxRetries; attempt++ { properties, err := c.fetchPropertiesForCity(cityName, country)
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+    if err == nil {
+        return properties, nil
+    }
+
+    if strings.Contains(err.Error(), "Too many requests") || 
+       strings.Contains(err.Error(), "You are not subscribed") {
+        waitTime := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+        time.Sleep(waitTime)
+        continue
+    }
+
+    return nil, err
+}
+
+return nil, fmt.Errorf("failed to fetch properties after %d attempts", maxRetries)
+}
+
+func (c *BookingController) fetchPropertiesForCity(cityName, country string) ([]models.Property, error) { uniqueProperties := make(map[string]models.Property) searchQueries := []string{ cityName, fmt.Sprintf("%s hotels", cityName), fmt.Sprintf("%s accommodation", cityName), }
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+for _, query := range searchQueries {
+    encodedQuery := url.QueryEscape(query)
+    apiURL := fmt.Sprintf("https://booking-com18.p.rapidapi.com/stays/auto-complete?query=%s", encodedQuery)
+    
+    properties, err := c.fetchPropertyData(apiURL)
+    if err != nil {
+        continue
+    }
+
+    for _, prop := range properties {
+        if prop.DestID != "" {
+            uniqueProperties[prop.DestID] = prop
+        }
+    }
+}
+
+result := make([]models.Property, 0, len(uniqueProperties))
+for _, prop := range uniqueProperties {
+    result = append(result, prop)
+}
+
+return result, nil
+}
+
+func (c *BookingController) fetchPropertyData(apiURL string) ([]models.Property, error) {
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+//!using rate limit
+req, err := http.NewRequest("GET", apiURL, nil)
+if err != nil {
+    return nil, err
+}
+
+req.Header.Add("x-rapidapi-host", "booking-com18.p.rapidapi.com")
+// req.Header.Add("x-rapidapi-key", "79d933f58amsh0baa13f673b03f0p16d4a2jsnb299a967d295")
+req.Header.Add("x-rapidapi-key", c.rapidAPIKey) // Use the stored RapidAPI key
+
+resp, err := c.makeRateLimitedRequest(req)
+if err != nil {
+    return nil, err
+}
+defer resp.Body.Close()
+
+body, err := io.ReadAll(resp.Body)
+if err != nil {
+    return nil, err
+}
+
+if resp.StatusCode == 429 || strings.Contains(string(body), "Too many requests") {
+    return nil, fmt.Errorf("rate limit exceeded")
+}
+
+var response struct {
+    Data []models.Property `json:"data"`
+}
+
+err = json.Unmarshal(body, &response)
+if err != nil {
+    return nil, err
+}
+
+return response.Data, nil
+}
+
+func (c *BookingController) SaveToDatabase() error { // Create a slice to store all locations var locations []models.Location
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Iterate through cityProperties to get properties
+for city, properties := range c.cityProperties {
+    // Find the country for this city
+    var country string
+    for countryName, cities := range c.countryCities {
+        for _, cityName := range cities {
+            if cityName == city {
+                country = countryName
+                break
+            }
+        }
+    }
+
+    // Add each property to locations
+    for _, property := range properties {
+        locations = append(locations, models.Location{
+            Property: property,
+            City:    city,
+            Country: country,
+        })
+    }
+}
+
+// Batch insert locations
+result := conf.DB.CreateInBatches(locations, 100)
+if result.Error != nil {
+    return fmt.Errorf("failed to save locations: %v", result.Error)
+}
+
+log.Printf("Successfully saved %d locations to database", len(locations))
+return nil
+}
+
+//!To only update the existing data in the database without running the full scraping process again, //!you can create a new endpoint or function that just updates the property names. func (c *BookingController) UpdatePropertyNames() error { var locations []models.Location
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Get all locations from database
+result := conf.DB.Find(&locations)
+if result.Error != nil {
+    return fmt.Errorf("failed to fetch locations: %v", result.Error)
+}
+
+// Update each location's property name
+for i := range locations {
+    // Extract just the property name by taking everything before " (Score:"
+    if idx := strings.Index(locations[i].Property, " (Score:"); idx != -1 {
+        locations[i].Property = locations[i].Property[:idx]
+        
+        // Save the updated record
+        if err := conf.DB.Save(&locations[i]).Error; err != nil {
+            log.Printf("Error updating location %d: %v", locations[i].ID, err)
+            continue
+        }
+    }
+}
+
+log.Printf("Successfully updated %d property names", len(locations))
+return nil
+}
+
+BLACKBOXAI
+
+Your code appears to be structured to fetch properties from the Booking.com API, but there are a few points to clarify regarding whether it is fetching the property IDs correctly.
+
+Key Points to Consider
+Fetching Properties: The fetchPropertiesForCity function is designed to fetch properties based on the city name and country. It constructs search queries and calls the API to retrieve property data.
+
+Property IDs: In your fetchPropertiesForCity function, you are using the DestID field from the models.Property struct to identify properties. However, the actual API response structure should be verified to ensure that DestID is indeed the property ID you want to use.
+
+Data Structure: The fetchPropertyData function is responsible for making the API call and parsing the response. It expects the response to contain a Data field that holds an array of properties. Ensure that the API response matches this expectation.
+
+Unique Properties: You are using a map (uniqueProperties) to store properties by their DestID, which helps avoid duplicates. This is a good approach if DestID is unique for each property.
+
+Error Handling: Your code includes error handling for rate limits and other potential issues when making API requests. This is important for robustness.
+
+Suggestions for Improvement
+Verify API Response: Make sure to check the actual API response structure from Booking.com to confirm that you are accessing the correct fields. You can log the response body to see what it contains.
+
+Property ID Usage: If you need to use a different identifier for properties (e.g., a specific property ID), ensure that you are correctly mapping that field in your models.Property struct.
+
+Testing: Test the fetchPropertiesForCity function with various city and country combinations to ensure it retrieves the expected properties.
+
+Logging: Add logging statements to track the flow of data and any potential issues. This can help you debug if properties are not being fetched as expected.
+
+Rate Limiting: Your implementation of rate limiting is good, but ensure that the limits set are appropriate for the API's usage policy.
+
+Example of Logging the API Response
+You can add logging to see the raw response from the API:
+
+go
+
+Verify
+
+Open In Editor
+Run
+Copy code
+func (c *BookingController) fetchPropertyData(apiURL string) ([]models.Property, error) {
+    req, err := http.NewRequest("GET", apiURL, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    req.Header.Add("x-rapidapi-host", "booking-com18.p.rapidapi.com")
+    req.Header.Add("x-rapidapi-key", c.rapidAPIKey)
+
+    resp, err := c.makeRateLimitedRequest(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return nil, err
+    }
+
+    // Log the response body for debugging
+    log.Printf("API Response: %s", string(body))
+
+    if resp.StatusCode == 429 || strings.Contains(string(body), "Too many requests") {
+        return nil, fmt.Errorf("rate limit exceeded")
+    }
+
+    var response struct {
+        Data []models.Property `json:"data"`
+    }
+    
+    err = json.Unmarshal(body, &response)
+    if err != nil {
+        return nil, err
+    }
+
+    return response.Data, nil
+}
+Conclusion
+Your code is set up to fetch properties from the Booking.com API, and it seems to be on the right track. Just ensure that you verify the API response structure and adjust your property ID handling accordingly. Adding logging will also help you debug and confirm that the properties are being fetched as expected.
+
+You
+
+is that code fetching property id? // models/booking.go package models
+
+// City represents a city from the Booking.com API type City struct { CC1 string json:"cc1" ImageURL string json:"image_url" Longitude float64 json:"longitude" CityName string json:"city_name" DestID string json:"dest_id" Timezone string json:"timezone" Hotels int json:"hotels" Label string json:"label" Country string json:"country" Region string json:"region" DestType string json:"dest_type" Name string json:"name" Latitude float64 json:"latitude" Type string json:"type" }
+
+// Property represents a property from the Booking.com API type Property struct { UFI int64 json:"ufi" CheckoutDate string json:"checkoutDate" ReviewScoreWord string json:"reviewScoreWord" Longitude float64 json:"longitude" IsPreferred bool json:"isPreferred" CountryCode string json:"countryCode" Latitude float64 json:"latitude" WishlistName string json:"wishlistName" Name string json:"name" PropertyClass float64 json:"accuratePropertyClass" DestID string json:"dest_id" CityName string json:"city_name" Country string json:"country" }
+
+// CityKey represents a unique identifier for a city type CityKey struct { Name string Country string }
+
+// controllers/booking_controller.go package controllers
+
+import ( "encoding/json" "fmt" "io" "log" "net/http" "net/url" "strings" "sync" "time" "math" "property-listing/conf" "property-listing/models" // You'll need to adjust this import path based on your module name "golang.org/x/time/rate" "context" "github.com/joho/godotenv" "os" // "gorm.io/gorm" // "regexp" // "strconv"
+
+)
+
+// BookingController handles all booking.com API related operations // type BookingController struct { // uniqueCountries map[string]bool // uniqueCities map[string]bool // countryCities map[string][]string // cityProperties map[string][]string // mutex sync.Mutex // } type BookingController struct { uniqueCountries map[string]bool uniqueCities map[string]bool countryCities map[string][]string cityProperties map[string][]string mutex sync.Mutex rateLimiter *rate.Limiter rapidAPIKey string //!added rapidApiKey } // NewBookingController creates a new instance of BookingController func NewBookingController() *BookingController { // Load environment variables from .env file err := godotenv.Load() if err != nil { log.Fatalf("Error loading .env file") }
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Get the RapidAPI key from the environment variable
+rapidAPIKey := os.Getenv("RAPIDAPI_KEY")
+if rapidAPIKey == "" {
+	log.Fatalf("RAPIDAPI_KEY is not set in the environment")
+}
+
+//! Created a rate limiter with 5 requests per minute
+// The first parameter (5) is the rate limit
+// The second parameter (1) is the burst size
+return &BookingController{
+    uniqueCountries: make(map[string]bool),
+    uniqueCities:    make(map[string]bool),
+    countryCities:   make(map[string][]string),
+    cityProperties:  make(map[string][]string),
+    rateLimiter:    rate.NewLimiter(rate.Every(12*time.Second), 1), // 5 requests per minute = 1 request per 12 seconds
+	rapidAPIKey:     rapidAPIKey, //! Initialize the rapidAPIKey field
+}
+} //! helper method for rate-limited requests func (c *BookingController) makeRateLimitedRequest(req *http.Request) (*http.Response, error) { // Wait for rate limiter err := c.rateLimiter.Wait(context.Background()) if err != nil { return nil, fmt.Errorf("rate limiter error: %v", err) }
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+client := &http.Client{
+    Timeout: 10 * time.Second,
+}
+return client.Do(req)
+} // GetSummary returns the current state of all data func (c *BookingController) GetSummary() interface{} { return struct { Countries map[string]bool json:"countries" Cities map[string]bool json:"cities" CountryCities map[string][]string json:"country_cities" CityProperties map[string][]string json:"city_properties" }{ Countries: c.uniqueCountries, Cities: c.uniqueCities, CountryCities: c.countryCities, CityProperties: c.cityProperties, } }
+
+//! Modified ProcessAllCities to limit concurrent requests func (c *BookingController) ProcessAllCities() error { queries := c.generateQueries() results := make(chan struct{}, len(queries))
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Reduce concurrent requests to 1 to better control rate limiting
+semaphore := make(chan struct{}, 1)
+
+for _, query := range queries {
+    semaphore <- struct{}{}
+    go func(q string) {
+        defer func() { <-semaphore }()
+        c.processCities(q, results)
+    }(query)
+}
+
+// Wait for all queries to complete
+for range queries {
+    <-results
+}
+
+return nil
+}
+
+// ProcessAllProperties processes properties for all cities func (c *BookingController) ProcessAllProperties() error { return c.processPropertiesForCities() }
+
+// Private methods
+
+func (c *BookingController) generateQueries() []string { queries := []string{}
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Alphabet queries
+for char := 'A'; char <= 'Z'; char++ {
+	queries = append(queries, string(char))
+}
+
+// Common prefixes and patterns
+prefixes := []string{
+	"a", "the", "new", "old", "big", "small", 
+	"north", "south", "east", "west", "central",
+}
+
+for _, prefix := range prefixes {
+	queries = append(queries, prefix)
+}
+
+return queries
+}
+
+func (c *BookingController) processCities(query string, results chan<- struct{}) { defer func() { results <- struct{}{} }()
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+cities, err := c.fetchCities(query)
+if err != nil {
+	log.Printf("Error fetching cities for query '%s': %v", query, err)
+	return
+}
+
+c.mutex.Lock()
+defer c.mutex.Unlock()
+
+for _, city := range cities {
+	country := strings.TrimSpace(strings.ToUpper(city.Country))
+	cityName := strings.TrimSpace(strings.ToUpper(city.CityName))
+
+	if country != "" {
+		c.uniqueCountries[country] = true
+	}
+
+	if cityName != "" {
+		c.uniqueCities[cityName] = true
+	}
+
+	if country != "" && cityName != "" {
+		if _, exists := c.countryCities[country]; !exists {
+			c.countryCities[country] = []string{}
+		}
+		
+		cityExists := false
+		for _, existingCity := range c.countryCities[country] {
+			if existingCity == cityName {
+				cityExists = true
+				break
+			}
+		}
+		
+		if !cityExists {
+			c.countryCities[country] = append(c.countryCities[country], cityName)
+		}
+	}
+}
+}
+
+func (c *BookingController) fetchCities(query string) ([]models.City, error) {
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+//!using rate limit
+apiURL := fmt.Sprintf("https://booking-com18.p.rapidapi.com/stays/auto-complete?query=%s", query)
+
+req, err := http.NewRequest("GET", apiURL, nil)
+if err != nil {
+    return nil, fmt.Errorf("error creating request: %v", err)
+}
+
+req.Header.Add("x-rapidapi-host", "booking-com18.p.rapidapi.com")
+req.Header.Add("x-rapidapi-key", c.rapidAPIKey) // Use the stored RapidAPI key
+// req.Header.Add("x-rapidapi-key", "79d933f58amsh0baa13f673b03f0p16d4a2jsnb299a967d295")
+
+resp, err := c.makeRateLimitedRequest(req)
+if err != nil {
+    return nil, fmt.Errorf("error sending request: %v", err)
+}
+defer resp.Body.Close()
+
+body, err := io.ReadAll(resp.Body)
+if err != nil {
+	return nil, fmt.Errorf("error reading response body: %v", err)
+}
+
+if resp.StatusCode != http.StatusOK {
+	return nil, fmt.Errorf("API request failed with status code: %d, body: %s", 
+		resp.StatusCode, string(body))
+}
+
+var citiesResp struct {
+	Data []models.City `json:"data"`
+}
+err = json.Unmarshal(body, &citiesResp)
+if err != nil {
+	return nil, fmt.Errorf("error parsing JSON: %v", err)
+}
+
+return citiesResp.Data, nil
+}
+
+func (c *BookingController) processPropertiesForCities() error { //!using limit for req propertyResults := make(chan struct { City models.CityKey Properties []models.Property Err error }, len(c.uniqueCities))
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Reduce concurrent requests to 1 to better control rate limiting
+semaphore := make(chan struct{}, 1)
+var wg sync.WaitGroup
+
+for country, cities := range c.countryCities {
+    for _, cityName := range cities {
+        wg.Add(1)
+        
+        go func(city, country string) {
+            defer wg.Done()
+            
+            semaphore <- struct{}{} 
+            defer func() { <-semaphore }()
+
+            properties, err := c.fetchPropertiesWithRetry(city, country, 3)
+            
+            propertyResults <- struct {
+                City       models.CityKey
+                Properties []models.Property
+                Err        error
+            }{
+                City:       models.CityKey{Name: city, Country: country},
+                Properties: properties,
+                Err:        err,
+            }
+        }(cityName, country)
+    }
+}
+
+go func() {
+	wg.Wait()
+	close(propertyResults)
+}()
+
+for result := range propertyResults {
+	if result.Err != nil {
+		log.Printf("Error fetching properties for %s, %s: %v", 
+			result.City.Name, result.City.Country, result.Err)
+		continue
+	}
+
+	c.processPropertyResult(result)
+}
+
+return nil
+}
+
+func (c *BookingController) processPropertyResult(result struct { City models.CityKey Properties []models.Property Err error }) { if len(result.Properties) == 0 { return }
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+c.mutex.Lock()
+defer c.mutex.Unlock()
+
+c.cityProperties[result.City.Name] = []string{}
+
+maxProperties := 20
+if len(result.Properties) < maxProperties {
+	maxProperties = len(result.Properties)
+}
+
+// for _, prop := range result.Properties[:maxProperties] {
+// 	c.cityProperties[result.City.Name] = append(
+// 		c.cityProperties[result.City.Name], 
+// 		fmt.Sprintf("%s (Score: %s, Class: %.1f, City: %s, Country: %s)", 
+// 			prop.Name, 
+// 			prop.ReviewScoreWord, 
+// 			prop.PropertyClass,
+// 			prop.CityName,
+// 			prop.Country,
+// 		),
+// 	)
+// }
+for _, prop := range result.Properties[:maxProperties] {
+	// Store only the property name without additional details
+	c.cityProperties[result.City.Name] = append(
+		c.cityProperties[result.City.Name], 
+		prop.Name, // Only store the property name
+	)
+}
+}
+
+func (c *BookingController) fetchPropertiesWithRetry(cityName, country string, maxRetries int) ([]models.Property, error) { for attempt := 0; attempt < maxRetries; attempt++ { properties, err := c.fetchPropertiesForCity(cityName, country)
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+    if err == nil {
+        return properties, nil
+    }
+
+    if strings.Contains(err.Error(), "Too many requests") || 
+       strings.Contains(err.Error(), "You are not subscribed") {
+        waitTime := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+        time.Sleep(waitTime)
+        continue
+    }
+
+    return nil, err
+}
+
+return nil, fmt.Errorf("failed to fetch properties after %d attempts", maxRetries)
+}
+
+func (c *BookingController) fetchPropertiesForCity(cityName, country string) ([]models.Property, error) { uniqueProperties := make(map[string]models.Property) searchQueries := []string{ cityName, fmt.Sprintf("%s hotels", cityName), fmt.Sprintf("%s accommodation", cityName), }
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+for _, query := range searchQueries {
+    encodedQuery := url.QueryEscape(query)
+    apiURL := fmt.Sprintf("https://booking-com18.p.rapidapi.com/stays/auto-complete?query=%s", encodedQuery)
+    
+    properties, err := c.fetchPropertyData(apiURL)
+    if err != nil {
+        continue
+    }
+
+    for _, prop := range properties {
+        if prop.DestID != "" {
+            uniqueProperties[prop.DestID] = prop
+        }
+    }
+}
+
+result := make([]models.Property, 0, len(uniqueProperties))
+for _, prop := range uniqueProperties {
+    result = append(result, prop)
+}
+
+return result, nil
+}
+
+func (c *BookingController) fetchPropertyData(apiURL string) ([]models.Property, error) {
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+//!using rate limit
+req, err := http.NewRequest("GET", apiURL, nil)
+if err != nil {
+    return nil, err
+}
+
+req.Header.Add("x-rapidapi-host", "booking-com18.p.rapidapi.com")
+// req.Header.Add("x-rapidapi-key", "79d933f58amsh0baa13f673b03f0p16d4a2jsnb299a967d295")
+req.Header.Add("x-rapidapi-key", c.rapidAPIKey) // Use the stored RapidAPI key
+
+resp, err := c.makeRateLimitedRequest(req)
+if err != nil {
+    return nil, err
+}
+defer resp.Body.Close()
+
+body, err := io.ReadAll(resp.Body)
+if err != nil {
+    return nil, err
+}
+
+if resp.StatusCode == 429 || strings.Contains(string(body), "Too many requests") {
+    return nil, fmt.Errorf("rate limit exceeded")
+}
+
+var response struct {
+    Data []models.Property `json:"data"`
+}
+
+err = json.Unmarshal(body, &response)
+if err != nil {
+    return nil, err
+}
+
+return response.Data, nil
+}
+
+func (c *BookingController) SaveToDatabase() error { // Create a slice to store all locations var locations []models.Location
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Iterate through cityProperties to get properties
+for city, properties := range c.cityProperties {
+    // Find the country for this city
+    var country string
+    for countryName, cities := range c.countryCities {
+        for _, cityName := range cities {
+            if cityName == city {
+                country = countryName
+                break
+            }
+        }
+    }
+
+    // Add each property to locations
+    for _, property := range properties {
+        locations = append(locations, models.Location{
+            Property: property,
+            City:    city,
+            Country: country,
+        })
+    }
+}
+
+// Batch insert locations
+result := conf.DB.CreateInBatches(locations, 100)
+if result.Error != nil {
+    return fmt.Errorf("failed to save locations: %v", result.Error)
+}
+
+log.Printf("Successfully saved %d locations to database", len(locations))
+return nil
+}
+
+//!To only update the existing data in the database without running the full scraping process again, //!you can create a new endpoint or function that just updates the property names. func (c *BookingController) UpdatePropertyNames() error { var locations []models.Location
+
+
+Verify
+
+Open In Editor
+Run
+Copy code
+// Get all locations from database
+result := conf.DB.Find(&locations)
+if result.Error != nil {
+    return fmt.Errorf("failed to fetch locations: %v", result.Error)
+}
+
+// Update each location's property name
+for i := range locations {
+    // Extract just the property name by taking everything before " (Score:"
+    if idx := strings.Index(locations[i].Property, " (Score:"); idx != -1 {
+        locations[i].Property = locations[i].Property[:idx]
+        
+        // Save the updated record
+        if err := conf.DB.Save(&locations[i]).Error; err != nil {
+            log.Printf("Error updating location %d: %v", locations[i].ID, err)
+            continue
+        }
+    }
+}
+
+log.Printf("Successfully updated %d property names", len(locations))
+return nil
+}
+
+BLACKBOXAI
+
+Yes, your code is set up to fetch property IDs, but there are a few clarifications needed regarding how property IDs are being handled and whether they are being correctly fetched from the API.
+
+Key Points
+Property Struct: In your models.Property struct, you have a field named DestID:
+
+go
+
+Verify
+
+Open In Editor
+Run
+Copy code
+type Property struct {
+    UFI               int64   `json:"ufi"`
+    CheckoutDate      string  `json:"checkoutDate"`
+    ReviewScoreWord   string  `json:"reviewScoreWord"`
+    Longitude         float64 `json:"longitude"`
+    IsPreferred       bool    `json:"isPreferred"`
+    CountryCode       string  `json:"countryCode"`
+    Latitude          float64 `json:"latitude"`
+    WishlistName      string  `json:"wishlistName"`
+    Name              string  `json:"name"`
+    PropertyClass     float64 `json:"accuratePropertyClass"`
+    DestID            string  `json:"dest_id"` // This is where the property ID is stored
+    CityName          string  `json:"city_name"`
+    Country           string  `json:"country"`
+}
+The DestID field is intended to hold the unique identifier for the property. Ensure that the API response includes this field and that it is correctly mapped.
+
+Fetching Properties: In the fetchPropertiesForCity function, you are constructing search queries and calling the API to retrieve property data:
+
+go
+
+Verify
+
+Open In Editor
+Run
+Copy code
+properties, err := c.fetchPropertyData(apiURL)
+if err != nil {
+    continue
+}
+
+for _, prop := range properties {
+    if prop.DestID != "" {
+        uniqueProperties[prop.DestID] = prop // Storing properties by their DestID
+    }
+}
+Here, you are checking if DestID is not empty and then storing the property in a map using DestID as the key. This ensures that you are collecting unique properties based on their IDs.
+
+API Response: The fetchPropertyData function is responsible for making the API call and parsing the response:
+
+go
+
+Verify
+
+Open In Editor
+Run
+Copy code
+var response struct {
+    Data []models.Property `json:"data"`
+}
+err = json.Unmarshal(body, &response)
+if err != nil {
+    return nil, err
+}
+return response.Data, nil
+Ensure that the API response actually contains a data field that holds an array of properties, and that each property includes the dest_id field.
+
+Conclusion
+Your code is indeed set up to fetch property IDs (stored in the DestID field of the Property struct). However, you need to ensure that:
+
+The API response includes the dest_id field for each property.
+You are correctly handling the API response and mapping it to your Property struct.
+Debugging Tips
+Log the API Response: Add logging to see the raw response from the API to confirm that it contains the expected fields:
+
+go
+
+Verify
+
+Open In Editor
+Run
+Copy code
+log.Printf("API Response: %s", string(body))
+Check API Documentation: Verify the API documentation to ensure that you are accessing the correct fields and that they are being returned as expected.
+
+Test with Different Queries: Test the fetchPropertiesForCity function with various city and country combinations to ensure it retrieves the expected properties and their IDs.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+git init
+git add .
+git commit -m "first commit"
+git branch -M main
+git remote add origin https://github.com/fahiiiiii/backendRental.git
+git push -u origin main

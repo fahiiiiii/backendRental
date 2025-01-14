@@ -1,0 +1,76 @@
+package services
+
+import (
+    "context"
+    "encoding/json"
+    "log"
+    "sync"
+    
+    "backend_rental/models"
+    "backend_rental/utils"
+    "backend_rental/utils/api"
+)
+
+type LocationProcessingService struct {
+    apiClient    utils.APIClientInterface
+    locationSvc  *LocationService
+}
+
+func NewLocationProcessingService(apiClient utils.APIClientInterface) *LocationProcessingService {
+    return &LocationProcessingService{
+        apiClient:   apiClient,
+        locationSvc: NewLocationService(),
+    }
+}
+
+func (s *LocationProcessingService) ProcessLocationsFromQueries(queries []string) error {
+    var allLocations []models.Location
+    var mu sync.Mutex
+    var wg sync.WaitGroup
+    
+    // Limit concurrent requests
+    semaphore := make(chan struct{}, 5)
+    
+    for _, query := range queries {
+        wg.Add(1)
+        semaphore <- struct{}{}
+        
+        go func(q string) {
+            defer wg.Done()
+            defer func() { <-semaphore }()
+            
+            cities, err := s.fetchCitiesForQuery(q)
+            if err != nil {
+                log.Printf("Error fetching cities for query '%s': %v", q, err)
+                return
+            }
+            
+            locationBatch := utils.ConvertCitiesToLocations(cities)
+            
+            mu.Lock()
+            allLocations = append(allLocations, locationBatch...)
+            mu.Unlock()
+        }(query)
+    }
+    
+    wg.Wait()
+    
+    uniqueLocations := utils.RemoveDuplicateLocations(allLocations)
+    return s.locationSvc.BulkCreateLocations(uniqueLocations)
+}
+
+func (s *LocationProcessingService) fetchCitiesForQuery(query string) ([]models.City, error) {
+    apiURL := api.BuildAPIURL(query)
+    
+    body, err := s.apiClient.MakeRequest(context.Background(), apiURL)
+    if err != nil {
+        return nil, err
+    }
+    
+    var citiesResp models.CityResponse
+    if err := json.Unmarshal(body, &citiesResp); err != nil {
+        return nil, err
+    }
+    
+    return citiesResp.Data, nil
+}

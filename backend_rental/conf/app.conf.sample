@@ -1,0 +1,10 @@
+# conf/app.conf
+appname =backend_rental
+httpport = 8080
+runmode = "${BEEGO_RUNMODE||dev}"
+
+[dev]
+rapidapikey = your_dev_api_key_here
+
+[prod]
+rapidapikey = your_prod_api_key_here

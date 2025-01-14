@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - BEEGO_RUNMODE=dev
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=fahimah
+      - DB_PASSWORD=fahimah123
+      - DB_NAME=rental_db
+    depends_on:
+      db:
+        condition: service_healthy
+    # depends_on:
+    #   - db
+    networks:
+      - app-network
+
+  db:
+    image: postgres:latest
+    restart: always
+    environment:
+      POSTGRES_USER: fahimah
+      POSTGRES_PASSWORD: fahimah123
+      POSTGRES_DB: rental_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fahimah -d rental_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres-data:
+
+networks:
+  app-network:
+# # docker-compose.yml:
+# version: '3.8'
+
+# services:
+#   app:
+#     build: .
+#     ports:
+#       - "8080:8080"
+#     environment:
+#       - DB_HOST=db
+#       - DB_PORT=5432
+#       - DB_USER=fahimah
+#       - DB_PASSWORD=fahimah123
+#       - DB_NAME=rental_db
+#     depends_on:
+#       - db
+
+#   db:
+#     image: postgres:latest
+#     restart: always
+#     environment:
+#       POSTGRES_USER: fahimah
+#       POSTGRES_PASSWORD: fahimah123
+#       POSTGRES_DB: rental_db
+#     ports:
+#       - "5432:5432"
+
