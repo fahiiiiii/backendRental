@@ -165,47 +165,127 @@ func (c *BookingController) listLocations(
     }, nil
 }
 
+// func (c *BookingController) processAllCities() error {
+//     // Generate queries using utility function
+//     queries := utils.GenerateLocationQueries()
+    
+//     var allCities []models.City
+//     var mu sync.Mutex
+//     var wg sync.WaitGroup
+    
+//     // Semaphore to limit concurrent requests
+//     semaphore := make(chan struct{}, 5)
+    
+//     for _, query := range queries {
+//         wg.Add(1)
+//         semaphore <- struct{}{}
+        
+//         go func(q string) {
+//             defer wg.Done()
+//             defer func() { <-semaphore }()
+            
+//             cities, err := c.fetchCities(q)
+//             if err != nil {
+//                 log.Printf("Error fetching cities for query '%s': %v", q, err)
+//                 return
+//             }
+            
+//             // Filter and clean cities
+//             cleanedCities := utils.FilterAndCleanCities(cities)
+            
+//             // Thread-safe append
+//             mu.Lock()
+//             allCities = append(allCities, cleanedCities...)
+//             mu.Unlock()
+//         }(query)
+//     }
+    
+//     // Wait for all goroutines to complete
+//     wg.Wait()
+    
+//     // Use LocationService to process and store cities
+//     return c.locationService.ProcessAndStoreCities(allCities)
+// }
 func (c *BookingController) processAllCities() error {
-    // Generate queries using utility function
+    // Create service instances
+    apiClient := apiclient.NewAPIClient(c.rapidAPIKey)
+    locationProcessingService := services.NewLocationProcessingService(apiClient)
+    
+    // Generate queries
     queries := utils.GenerateLocationQueries()
     
-    var allCities []models.City
-    var mu sync.Mutex
-    var wg sync.WaitGroup
-    
-    // Semaphore to limit concurrent requests
-    semaphore := make(chan struct{}, 5)
-    
-    for _, query := range queries {
-        wg.Add(1)
-        semaphore <- struct{}{}
-        
-        go func(q string) {
-            defer wg.Done()
-            defer func() { <-semaphore }()
-            
-            cities, err := c.fetchCities(q)
-            if err != nil {
-                log.Printf("Error fetching cities for query '%s': %v", q, err)
-                return
-            }
-            
-            // Filter and clean cities
-            cleanedCities := utils.FilterAndCleanCities(cities)
-            
-            // Thread-safe append
-            mu.Lock()
-            allCities = append(allCities, cleanedCities...)
-            mu.Unlock()
-        }(query)
-    }
-    
-    // Wait for all goroutines to complete
-    wg.Wait()
-    
-    // Use LocationService to process and store cities
-    return c.locationService.ProcessAndStoreCities(allCities)
+    // Let the service handle the processing
+    return locationProcessingService.ProcessLocationsFromQueries(queries)
 }
+// func (c *BookingController) processAllCities() error {
+//     queries := utils.GenerateLocationQueries()
+//     log.Printf("Starting to process %d queries", len(queries))
+    
+//     var allCities []models.City
+//     var mu sync.Mutex
+//     var wg sync.WaitGroup
+//     errChan := make(chan error, len(queries))
+    
+//     // Semaphore for rate limiting
+//     semaphore := make(chan struct{}, 3) // Reduced concurrent requests
+    
+//     for _, query := range queries {
+//         wg.Add(1)
+//         semaphore <- struct{}{}
+        
+//         go func(q string) {
+//             defer wg.Done()
+//             defer func() { <-semaphore }()
+            
+//             // Add retry logic
+//             var cities []models.City
+//             var err error
+//             for retries := 0; retries < 3; retries++ {
+//                 cities, err = c.fetchCities(q)
+//                 if err == nil {
+//                     break
+//                 }
+//                 log.Printf("Retry %d for query '%s': %v", retries+1, q, err)
+//                 time.Sleep(time.Second * time.Duration(retries+1))
+//             }
+            
+//             if err != nil {
+//                 errChan <- fmt.Errorf("failed to fetch cities for query '%s': %v", q, err)
+//                 return
+//             }
+            
+//             cleanedCities := utils.FilterAndCleanCities(cities)
+//             log.Printf("Fetched and cleaned %d cities for query '%s'", len(cleanedCities), q)
+            
+//             mu.Lock()
+//             allCities = append(allCities, cleanedCities...)
+//             mu.Unlock()
+//         }(query)
+//     }
+    
+//     // Wait for all goroutines
+//     wg.Wait()
+//     close(errChan)
+    
+//     // Check for errors
+//     var errors []error
+//     for err := range errChan {
+//         errors = append(errors, err)
+//     }
+    
+//     if len(errors) > 0 {
+//         return fmt.Errorf("encountered %d errors while fetching cities: %v", len(errors), errors)
+//     }
+    
+//     // Process cities if we have any
+//     if len(allCities) == 0 {
+//         return fmt.Errorf("no cities were fetched from any query")
+//     }
+    
+//     log.Printf("Successfully fetched %d total cities", len(allCities))
+//     return c.locationService.ProcessAndStoreCities(allCities)
+// }
+
 
 func (c *BookingController) fetchCities(query string) ([]models.City, error) {
     // Use rate-limited API client

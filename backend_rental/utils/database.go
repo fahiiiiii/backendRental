@@ -82,6 +82,7 @@ func InitDatabase() {
     // Register models only once
     orm.RegisterModel(
         new(models.Location),
+        new(models.RentalProperty), // Register RentalProperty model here
         // Add other models here
     )
     modelsRegistered = true

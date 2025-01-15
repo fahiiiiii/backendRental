@@ -6,6 +6,7 @@ import (
     "fmt"
     "io"
     "net/http"
+    "log"
     "time"
     "backend_rental/utils/ratelimiter"
 )
@@ -25,8 +26,12 @@ func NewAPIClient(rapidAPIKey string) *APIClient {
         rapidAPIKey: rapidAPIKey,
     }
 }
-
 func (c *APIClient) MakeRequest(ctx context.Context, url string) ([]byte, error) {
+    start := time.Now()
+    defer func() {
+        log.Printf("Request to %s took %v", url, time.Since(start))
+    }()
+// func (c *APIClient) MakeRequest(ctx context.Context, url string) ([]byte, error) {
     req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
     if err != nil {
         return nil, fmt.Errorf("error creating request: %v", err)
@@ -92,4 +97,17 @@ func (c *APIClient) MakePostRequest(ctx context.Context, url string, body io.Rea
     }
 
     return responseBody, nil
+}
+
+func (c *APIClient) MakeRequestWithRetry(ctx context.Context, url string) ([]byte, error) {
+    var lastErr error
+    for retries := 0; retries < 3; retries++ {
+        data, err := c.MakeRequest(ctx, url)
+        if err == nil {
+            return data, nil
+        }
+        lastErr = err
+        time.Sleep(time.Second * time.Duration(retries+1))
+    }
+    return nil, fmt.Errorf("all retries failed: %v", lastErr)
 }

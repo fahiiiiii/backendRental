@@ -1,10 +1,21 @@
-# conf/app.conf
-appname =backend_rental
+appname = backend_rental
 httpport = 8080
-runmode = "${BEEGO_RUNMODE||dev}"
+runmode = dev
 
 [dev]
-rapidapikey = your_dev_api_key_here
+dbdriver = your_preferred_db_driver
+dbuser = your_username
+dbpassword = your_db_password
+dbhost = your_db_host
+dbport = 5432 
+dbname = your_db_name
+rapidapikey = da3e9fc45bmshe789fe44546bf15p1effc1jsn5a5396d76549
 
 [prod]
-rapidapikey = your_prod_api_key_here
+dbdriver = your_preferred_db_driver
+dbuser = your_username
+dbpassword = your_db_password
+dbhost = your_db_host
+dbport = 5432 
+dbname = your_db_name
+rapidapikey = da3e9fc45bmshe789fe44546bf15p1effc1jsn5a5396d76549

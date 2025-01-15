@@ -6,10 +6,8 @@ import (
 )
 
 func init() {
-	// Existing routes
-	beego.Router("/", &controllers.PropertyController{}, "get:Index")
-	beego.Router("/v1/property/list", &controllers.PropertyController{}, "get:List")
-	
-	// Add new route for property details
-	beego.Router("/v1/property/details", &controllers.PropertyDetailsController{}, "get:Details")
+    beego.Router("/", &controllers.MainController{})
+	// In routers/router.go
+	beego.Router("/destinations", &controllers.DestinationsController{})
+	beego.Router("/all-properties", &controllers.PropertyController{}, "get:GetPropertiesByCity")
 }

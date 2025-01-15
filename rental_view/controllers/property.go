@@ -1,55 +1,70 @@
+// controllers/property.go
 package controllers
 
 import (
-	"github.com/beego/beego/v2/server/web"
+    "encoding/json"
+    "net/http"
+    "github.com/beego/beego/v2/server/web"
 )
 
 type PropertyController struct {
-	web.Controller
+    web.Controller
 }
 
-func (c *PropertyController) Index() {
-	c.TplName = "index.tpl"
+type Property struct {
+    ID          string   `json:"id"`
+    Title       string   `json:"title"`
+    Price       float64  `json:"price"`
+    Image       string   `json:"image"`
+    BadgeText   string   `json:"badgeText"`
+    Rating      float64  `json:"rating"`
+    Bedrooms    int      `json:"bedrooms"`
+    Amenities   []string `json:"amenities"`
+    ReviewCount int      `json:"reviewCount"`
+    CityID      string   `json:"city_id"`
 }
 
-func (c *PropertyController) List() {
-	// Mock data - replace with actual API call
-	properties := []map[string]interface{}{
-		{
-			"id":           1,
-			"title":        "Mid Superior Villa At Palm Paradise Luxury Villa",
-			"price":        98791,
-			"bedrooms":     4,
-			"amenities":    []string{"Pool", "Beach View"},
-			"rating":       4.9,
-			"reviewCount":  24,
-			"image":        "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b",
-			"badgeText":    "New",
-		},
-		{
-			"id":           2,
-			"title":        "Beaches Holiday Homes - Capital Bay",
-			"price":        52000,
-			"bedrooms":     2,
-			"amenities":    []string{"City View", "Gym"},
-			"rating":       4.8,
-			"reviewCount":  16,
-			"image":        "https://images.unsplash.com/photo-1512918728675-ed5a9ecdebfd",
-			"badgeText":    "Featured",
-		},
-		{
-			"id":           3,
-			"title":        "Luxury Pool Access Apartment",
-			"price":        3278,
-			"bedrooms":     3,
-			"amenities":    []string{"Pool", "Spa"},
-			"rating":       4.7,
-			"reviewCount":  32,
-			"image":        "https://images.unsplash.com/photo-1594560913095-8cf34baf3a39",
-			"badgeText":    "Popular",
-		},
-	}
+func (c *PropertyController) GetPropertiesByCity() {
+    cityID := c.GetString("city_id")
+    if cityID == "" {
+        c.Data["json"] = map[string]interface{}{
+            "error": "City ID is required",
+        }
+        c.Ctx.Output.SetStatus(400)
+        c.ServeJSON()
+        return
+    }
 
-	c.Data["json"] = properties
-	c.ServeJSON()
+    // Make request to internal API
+    resp, err := http.Get("http://localhost:8080/v1/property/list")
+    if err != nil {
+        c.Data["json"] = map[string]interface{}{
+            "error": err.Error(),
+        }
+        c.Ctx.Output.SetStatus(500)
+        c.ServeJSON()
+        return
+    }
+    defer resp.Body.Close()
+
+    var properties []Property
+    if err := json.NewDecoder(resp.Body).Decode(&properties); err != nil {
+        c.Data["json"] = map[string]interface{}{
+            "error": "Failed to parse properties: " + err.Error(),
+        }
+        c.Ctx.Output.SetStatus(500)
+        c.ServeJSON()
+        return
+    }
+
+    // Filter properties by city_id
+    cityProperties := []Property{}
+    for _, prop := range properties {
+        if prop.CityID == cityID {
+            cityProperties = append(cityProperties, prop)
+        }
+    }
+
+    c.Data["json"] = cityProperties
+    c.ServeJSON()
 }

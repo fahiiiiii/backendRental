@@ -8,7 +8,7 @@ services:
     environment:
       - BEEGO_RUNMODE=dev
       - DB_HOST=db
-      - DB_PORT=5433
+      - DB_PORT=5432
       - DB_USER=fahimah
       - DB_PASSWORD=fahimah123
       - DB_NAME=rental_db
@@ -28,7 +28,7 @@ services:
       POSTGRES_PASSWORD: fahimah123
       POSTGRES_DB: rental_db
     ports:
-      - "5433:5433"
+      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:

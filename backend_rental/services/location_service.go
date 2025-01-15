@@ -101,18 +101,44 @@ func (s *LocationService) GetLocationByID(cityID string) (*models.Location, erro
     return location, nil
 }
 
-// Process and store cities
+// // Process and store cities
+// func (s *LocationService) ProcessAndStoreCities(cities []models.City) error {
+//     // Filter and clean cities using utility function
+//     cleanedCities := utils.FilterAndCleanCities(cities)
+    
+//     // Convert cities to locations
+//     locations := s.convertCitiesToLocationsInternal(cleanedCities)
+    
+//     // Bulk create
+//     return s.BulkCreateLocations(locations)
+// }
 func (s *LocationService) ProcessAndStoreCities(cities []models.City) error {
-    // Filter and clean cities using utility function
+    // Add logging
+    log.Printf("Processing %d cities", len(cities))
+    
+    // Filter and clean cities
     cleanedCities := utils.FilterAndCleanCities(cities)
+    log.Printf("After cleaning: %d cities", len(cleanedCities))
     
-    // Convert cities to locations
+    // Convert to locations
     locations := s.convertCitiesToLocationsInternal(cleanedCities)
+    log.Printf("Converted to %d locations", len(locations))
     
-    // Bulk create
-    return s.BulkCreateLocations(locations)
+    // Add validation
+    if len(locations) == 0 {
+        return fmt.Errorf("no valid locations to store")
+    }
+    
+    // Bulk create with error handling
+    err := s.BulkCreateLocations(locations)
+    if err != nil {
+        log.Printf("Error storing locations: %v", err)
+        return err
+    }
+    
+    log.Printf("Successfully stored %d locations", len(locations))
+    return nil
 }
-
 // Internal method to convert cities to locations
 func (s *LocationService) convertCitiesToLocationsInternal(cities []models.City) []models.Location {
     locations := make([]models.Location, 0, len(cities))
@@ -165,3 +191,67 @@ func (s *LocationService) GetUniqueCountriesAndCities() (map[string][]string, er
 
     return countryCities, nil
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+// // services/location_service.go
+// package services
+
+// import (
+// 	"fmt"
+// 	"backend_rental/models"
+// 	"github.com/beego/beego/v2/client/orm"
+// )
+
+// type LocationServiceInterface interface {
+// 	GetProperties(filter PropertyFilter) ([]models.RentalProperty, error)
+// }
+
+// type LocationService struct{}
+
+// type PropertyFilter struct {
+// 	CityID      string
+// 	Type        string
+// 	MinBedrooms string
+// }
+
+// func NewLocationService() LocationServiceInterface {
+// 	return &LocationService{}
+// }
+
+// func (s *LocationService) GetProperties(filter PropertyFilter) ([]models.RentalProperty, error) {
+// 	o := orm.NewOrm()
+	
+// 	// Start building the query
+// 	qs := o.QueryTable("rental_property")
+	
+// 	// Apply filters
+// 	if filter.CityID != "" {
+// 		qs = qs.Filter("city_id", filter.CityID)
+// 	}
+// 	if filter.Type != "" {
+// 		qs = qs.Filter("type", filter.Type)
+// 	}
+// 	if filter.MinBedrooms != "" {
+// 		qs = qs.Filter("bedrooms__gte", filter.MinBedrooms)
+// 	}
+	
+// 	// Execute query
+// 	var properties []models.RentalProperty
+// 	_, err := qs.All(&properties)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("failed to fetch properties: %v", err)
+// 	}
+	
+// 	return properties, nil
+// }
