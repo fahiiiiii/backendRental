@@ -1,4 +1,3 @@
-// utils/database.go
 package utils
 
 import (
