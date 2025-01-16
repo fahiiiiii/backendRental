@@ -7,6 +7,7 @@ import (
     "backend_rental/models"
     "backend_rental/utils"
     "github.com/beego/beego/v2/client/orm"
+    "time"
 )
 
 type LocationService struct{}
@@ -49,41 +50,89 @@ func (s *LocationService) GetLocations(
 
 // Bulk create or update locations
 func (s *LocationService) BulkCreateLocations(locations []models.Location) error {
+    log.Printf("Starting to save locations. Total locations: %d", len(locations))
+
     o := orm.NewOrm()
-    
-    // Start transaction
-    tx, err := o.Begin()
-    if err != nil {
-        return err
-    }
 
-    // Use a defer to handle potential rollback
-    defer func() {
-        if r := recover(); r != nil {
-            tx.Rollback()
-        }
-    }()
-
-    // Remove duplicates using utility function
-    uniqueLocations := utils.RemoveDuplicateLocations(locations)
-
-    for _, location := range uniqueLocations {
-        // Skip invalid locations
+    for _, location := range locations {
         if location.ID == "" || location.CityName == "" {
+            log.Printf("Skipping invalid location: %+v", location)
             continue
         }
 
-        // Upsert logic
-        _, err := o.InsertOrUpdate(&location)
+        // Set current timestamps
+        location.CreatedAt = time.Now()
+        location.UpdatedAt = time.Now()
+
+        // Use raw SQL with explicit upsert
+        _, err := o.Raw(`
+            INSERT INTO location (
+                id, city_name, country, country_code, 
+                latitude, longitude, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+                city_name = EXCLUDED.city_name,
+                country = EXCLUDED.country,
+                country_code = EXCLUDED.country_code,
+                latitude = EXCLUDED.latitude,
+                longitude = EXCLUDED.longitude,
+                updated_at = EXCLUDED.updated_at
+        `, 
+            location.ID, 
+            location.CityName, 
+            location.Country, 
+            location.CountryCode, 
+            location.Latitude, 
+            location.Longitude, 
+            location.CreatedAt, 
+            location.UpdatedAt,
+        ).Exec()
+
         if err != nil {
-            tx.Rollback()
-            return fmt.Errorf("error upserting location %s: %v", location.ID, err)
+            log.Printf("Error inserting location %s: %v", location.ID, err)
+            return fmt.Errorf("error inserting location %s: %v", location.ID, err)
         }
     }
 
-    // Commit transaction
-    return tx.Commit()
+    log.Printf("Successfully saved %d locations", len(locations))
+    return nil
 }
+// func (s *LocationService) BulkCreateLocations(locations []models.Location) error {
+//     o := orm.NewOrm()
+    
+//     // Start transaction
+//     tx, err := o.Begin()
+//     if err != nil {
+//         return err
+//     }
+
+//     // Use a defer to handle potential rollback
+//     defer func() {
+//         if r := recover(); r != nil {
+//             tx.Rollback()
+//         }
+//     }()
+
+//     // Remove duplicates using utility function
+//     uniqueLocations := utils.RemoveDuplicateLocations(locations)
+
+//     for _, location := range uniqueLocations {
+//         // Skip invalid locations
+//         if location.ID == "" || location.CityName == "" {
+//             continue
+//         }
+
+//         // Upsert logic
+//         _, err := o.InsertOrUpdate(&location)
+//         if err != nil {
+//             tx.Rollback()
+//             return fmt.Errorf("error upserting location %s: %v", location.ID, err)
+//         }
+//     }
+
+//     // Commit transaction
+//     return tx.Commit()
+// }
 
 // Optional: Get a single location by ID
 func (s *LocationService) GetLocationByID(cityID string) (*models.Location, error) {
@@ -101,17 +150,6 @@ func (s *LocationService) GetLocationByID(cityID string) (*models.Location, erro
     return location, nil
 }
 
-// // Process and store cities
-// func (s *LocationService) ProcessAndStoreCities(cities []models.City) error {
-//     // Filter and clean cities using utility function
-//     cleanedCities := utils.FilterAndCleanCities(cities)
-    
-//     // Convert cities to locations
-//     locations := s.convertCitiesToLocationsInternal(cleanedCities)
-    
-//     // Bulk create
-//     return s.BulkCreateLocations(locations)
-// }
 func (s *LocationService) ProcessAndStoreCities(cities []models.City) error {
     // Add logging
     log.Printf("Processing %d cities", len(cities))
@@ -198,60 +236,3 @@ func (s *LocationService) GetUniqueCountriesAndCities() (map[string][]string, er
 
 
 
-
-
-
-
-
-
-// // services/location_service.go
-// package services
-
-// import (
-// 	"fmt"
-// 	"backend_rental/models"
-// 	"github.com/beego/beego/v2/client/orm"
-// )
-
-// type LocationServiceInterface interface {
-// 	GetProperties(filter PropertyFilter) ([]models.RentalProperty, error)
-// }
-
-// type LocationService struct{}
-
-// type PropertyFilter struct {
-// 	CityID      string
-// 	Type        string
-// 	MinBedrooms string
-// }
-
-// func NewLocationService() LocationServiceInterface {
-// 	return &LocationService{}
-// }
-
-// func (s *LocationService) GetProperties(filter PropertyFilter) ([]models.RentalProperty, error) {
-// 	o := orm.NewOrm()
-	
-// 	// Start building the query
-// 	qs := o.QueryTable("rental_property")
-	
-// 	// Apply filters
-// 	if filter.CityID != "" {
-// 		qs = qs.Filter("city_id", filter.CityID)
-// 	}
-// 	if filter.Type != "" {
-// 		qs = qs.Filter("type", filter.Type)
-// 	}
-// 	if filter.MinBedrooms != "" {
-// 		qs = qs.Filter("bedrooms__gte", filter.MinBedrooms)
-// 	}
-	
-// 	// Execute query
-// 	var properties []models.RentalProperty
-// 	_, err := qs.All(&properties)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to fetch properties: %v", err)
-// 	}
-	
-// 	return properties, nil
-// }

@@ -195,6 +195,21 @@ func (s *PropertyDetailsService) savePropertyDetailsToDatabase(details *models.P
 	return nil
 }
 
+func (s *PropertyDetailsService) FetchStoredPropertyDetails(propertyIDs []string) (map[string]*models.PropertyDetails, error) {
+	o := orm.NewOrm()
+	details := make(map[string]*models.PropertyDetails)
+
+	for _, id := range propertyIDs {
+		var property models.PropertyDetails
+		err := o.QueryTable("property_details").Filter("property_id", id).One(&property)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch details for property ID %s: %v", id, err)
+		}
+		details[id] = &property
+	}
+
+	return details, nil
+}
 
 // package services
 

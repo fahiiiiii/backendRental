@@ -1,4 +1,4 @@
-// // models/city.go
+// backend_rental/models/city.go
 package models
 
 type City struct {
@@ -10,7 +10,8 @@ type City struct {
 type CityResponse struct {
     Data []City `json:"data"`
 }
-// // models/city.go
+
+// // // models/city.go
 // package models
 
 // type City struct {
@@ -21,17 +22,4 @@ type CityResponse struct {
 
 // type CityResponse struct {
 //     Data []City `json:"data"`
-// }
-// type CityDetails struct {
-//     ID          string   `json:"id"`
-//     CityName    string   `json:"city_name"`
-//     Country     string   `json:"country"`
-//     Properties  []string `json:"properties"`
-// }
-
-// type BookingSummary struct {
-//     Countries      map[string]bool            `json:"countries"`
-//     Cities         map[string]bool            `json:"cities"`
-//     CountryCities  map[string][]string        `json:"country_cities"`
-//     CityProperties map[string][]string        `json:"city_properties"`
 // }

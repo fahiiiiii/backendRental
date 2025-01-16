@@ -3,99 +3,168 @@ package utils
 import (
     "fmt"
     "log"
-    "os"
-    "time"
+    "github.com/beego/beego/v2/server/web"
     "github.com/beego/beego/v2/client/orm"
+    "gorm.io/gorm"
+    "gorm.io/driver/postgres"
     _ "github.com/lib/pq"
-    beego "github.com/beego/beego/v2/server/web"
     "backend_rental/models"
 )
 
-var modelsRegistered = false
+var db *gorm.DB
 
-func InitDatabase() {
-    // Ensure models are only registered once
-    if modelsRegistered {
-        return
+// InitDatabaseFromConfig initializes both GORM and Beego ORM
+func InitDatabaseFromConfig() error {
+    // Load configuration from app.conf
+    err := web.LoadAppConfig("ini", "conf/app.conf")
+    if err != nil {
+        return fmt.Errorf("failed to load config: %v", err)
     }
 
-    // Get database configuration from environment variables first, fall back to config file
-    dbHost := os.Getenv("DB_HOST")
-    if dbHost == "" {
-        dbHost = beego.AppConfig.DefaultString("dbhost", "db")
+    // Retrieve the database configuration values
+    dbUser, err := web.AppConfig.String("dbuser")
+    if err != nil {
+        return fmt.Errorf("dbuser not found in config: %v", err)
+    }
+    
+    dbPassword, err := web.AppConfig.String("dbpassword")
+    if err != nil {
+        return fmt.Errorf("dbpassword not found in config: %v", err)
     }
 
-    dbPort := os.Getenv("DB_PORT")
-    if dbPort == "" {
-        dbPort = beego.AppConfig.DefaultString("dbport", "5432")
+    dbHost, err := web.AppConfig.String("dbhost")
+    if err != nil {
+        return fmt.Errorf("dbhost not found in config: %v", err)
     }
 
-    dbUser := os.Getenv("DB_USER")
-    if dbUser == "" {
-        dbUser = beego.AppConfig.DefaultString("dbuser", "")
+    dbPort, err := web.AppConfig.String("dbport")
+    if err != nil {
+        return fmt.Errorf("dbport not found in config: %v", err)
     }
 
-    dbPassword := os.Getenv("DB_PASSWORD")
-    if dbPassword == "" {
-        dbPassword = beego.AppConfig.DefaultString("dbpassword", "")
+    dbName, err := web.AppConfig.String("dbname")
+    if err != nil {
+        return fmt.Errorf("dbname not found in config: %v", err)
     }
 
-    dbName := os.Getenv("DB_NAME")
-    if dbName == "" {
-        dbName = beego.AppConfig.DefaultString("dbname", "")
+    // Initialize GORM
+    gormDSN := fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%s sslmode=disable",
+        dbUser, dbPassword, dbName, dbHost, dbPort)
+    
+    db, err = gorm.Open(postgres.Open(gormDSN), &gorm.Config{})
+    if err != nil {
+        return fmt.Errorf("failed to connect to database with GORM: %v", err)
     }
 
-    // Log configuration (excluding password)
-    log.Printf("Database Configuration:")
-    log.Printf("Host: %s", dbHost)
-    log.Printf("Port: %s", dbPort)
-    log.Printf("User: %s", dbUser)
-    log.Printf("Database: %s", dbName)
-
-    // Construct the connection string
-    connectionString := fmt.Sprintf(
-        "host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-        dbHost, dbPort, dbUser, dbPassword, dbName,
-    )
-
-    // Register the database driver
-    if err := orm.RegisterDriver("postgres", orm.DRPostgres); err != nil {
-        log.Fatalf("Database driver registration failed: %v", err)
+    // Initialize Beego ORM
+    orm.RegisterDriver("postgres", orm.DRPostgres)
+    
+    beegoConnStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
+        dbUser, dbPassword, dbHost, dbPort, dbName)
+    
+    err = orm.RegisterDataBase("default", "postgres", beegoConnStr)
+    if err != nil {
+        return fmt.Errorf("failed to register database with Beego ORM: %v", err)
     }
 
-    // Register the database with retry logic
-    maxRetries := 5
-    for i := 0; i < maxRetries; i++ {
-        err := orm.RegisterDataBase("default", "postgres", connectionString)
-        if err == nil {
-            log.Println("Successfully connected to database")
-            break
-        }
-        if i == maxRetries-1 {
-            log.Fatalf("Failed to register database after %d attempts: %v", maxRetries, err)
-        }
-        log.Printf("Failed to connect to database (attempt %d/%d): %v", i+1, maxRetries, err)
-        // Wait for 5 seconds before retrying
-        time.Sleep(5 * time.Second)
-    }
-
-    // Register models only once
+    // Register models with Beego ORM
+    // orm.RegisterModel(new(models.Location))
     orm.RegisterModel(
         new(models.Location),
-        new(models.RentalProperty), // Register RentalProperty model here
+        // new(models.PropertyDetails),
         // Add other models here
     )
-    modelsRegistered = true
 
-    // Sync database schema
-    if err := orm.RunSyncdb("default", false, true); err != nil {
-        log.Fatalf("Database schema sync failed: %v", err)
+    // Optional: Create tables if they don't exist
+    err = orm.RunSyncdb("default", false, true)
+    if err != nil {
+        return fmt.Errorf("failed to sync database: %v", err)
     }
 
-    // Optional: Enable ORM debug mode in development
-    if beego.AppConfig.DefaultString("runmode", "dev") == "dev" {
-        orm.Debug = true
+    // Use force=true to recreate tables (use with caution in production)
+    err = orm.RunSyncdb("default", false, true)
+    if err != nil {
+        return fmt.Errorf("failed to sync database: %v", err)
     }
 
-    log.Println("Database initialized successfully!")
+    // Set up connection pool parameters for Beego ORM
+    orm.SetMaxIdleConns("default", 10)
+    orm.SetMaxOpenConns("default", 100)
+
+    log.Println("Database connected successfully (GORM and Beego ORM)")
+    return nil
 }
+
+// GetDB returns the initialized GORM database instance
+func GetDB() *gorm.DB {
+    return db
+}
+
+// GetBeegoOrm returns a new Beego ORM object
+func GetBeegoOrm() orm.Ormer {
+    return orm.NewOrm()
+}
+
+// package utils
+
+// import (
+//     "log"
+//     "github.com/beego/beego/v2/server/web"
+//     "gorm.io/gorm"
+//     "gorm.io/driver/postgres"
+// )
+
+// var db *gorm.DB
+
+
+// // InitDatabaseFromConfig loads config and initializes the database connection
+// func InitDatabaseFromConfig() error {
+//     // Load configuration from app.conf
+//     err := web.LoadAppConfig("ini", "conf/app.conf")
+//     if err != nil {
+//         return err
+//     }
+
+//     // Retrieve the database configuration values, handling errors
+//     dbUser, err := web.AppConfig.String("dbuser")
+//     if err != nil {
+//         return err
+//     }
+    
+//     dbPassword, err := web.AppConfig.String("dbpassword")
+//     if err != nil {
+//         return err
+//     }
+
+//     dbHost, err := web.AppConfig.String("dbhost")
+//     if err != nil {
+//         return err
+//     }
+
+//     dbPort, err := web.AppConfig.String("dbport")
+//     if err != nil {
+//         return err
+//     }
+
+//     dbName, err := web.AppConfig.String("dbname")
+//     if err != nil {
+//         return err
+//     }
+
+//     // Build the correct Data Source Name (DSN)
+//     dsn := "user=" + dbUser + " password=" + dbPassword + " dbname=" + dbName + " host=" + dbHost + " port=" + dbPort + " sslmode=disable"
+
+//     // Initialize the database connection using the DSN
+//     db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+//     if err != nil {
+//         return err
+//     }
+
+//     log.Println("Database connected successfully")
+//     return nil
+// }
+
+// // GetDB returns the initialized database instance
+// func GetDB() *gorm.DB {
+//     return db
+// }

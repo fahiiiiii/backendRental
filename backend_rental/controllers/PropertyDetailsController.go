@@ -12,8 +12,6 @@ import (
 type PropertyDetailsController struct {
 	beego.Controller
 }
-
-// GetPropertyDetails fetches and processes property details.
 func (c *PropertyDetailsController) GetPropertyDetails() {
 	var request struct {
 		PropertyIDs []string `json:"property_ids"`
@@ -29,8 +27,9 @@ func (c *PropertyDetailsController) GetPropertyDetails() {
 		return
 	}
 
+	// Fetch details from the database
 	service := services.NewPropertyDetailsService()
-	propertyDetails, err := service.FetchAndProcessPropertyDetails(request.PropertyIDs)
+	propertyDetails, err := service.FetchStoredPropertyDetails(request.PropertyIDs)
 	if err != nil {
 		c.CustomAbort(http.StatusInternalServerError, err.Error())
 		return

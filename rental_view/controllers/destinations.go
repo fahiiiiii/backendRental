@@ -60,3 +60,9 @@ func (c *DestinationsController) Get() {
     c.Data["json"] = cities
     c.ServeJSON()
 }
+
+func (c *PropertyController) Get() {
+	c.Data["Website"] = "beego.vip"
+	c.Data["Email"] = "astaxie@gmail.com"
+	c.TplName = "property_details.tpl"
+}

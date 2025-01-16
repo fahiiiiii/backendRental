@@ -68,3 +68,10 @@ func (c *PropertyController) GetPropertiesByCity() {
     c.Data["json"] = cityProperties
     c.ServeJSON()
 }
+
+
+func (c *PropertyController) Get() {
+	c.Data["Website"] = "beego.vip"
+	c.Data["Email"] = "astaxie@gmail.com"
+	c.TplName = "list.tpl"
+}

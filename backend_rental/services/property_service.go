@@ -2,424 +2,256 @@
 package services
 
 import (
-    "context"
     "encoding/json"
     "fmt"
     "io"
     "net/http"
     "net/url"
-    "strings"
-    "sync"
-    
-    "github.com/beego/beego/v2/core/logs"  // Changed to correct import
     "backend_rental/models"
-    "backend_rental/utils/ratelimiter"
-    
+    "gorm.io/gorm"
 )
 
+// PropertyServiceInterface defines the methods that PropertyService must implement
 type PropertyServiceInterface interface {
-    GetAllProperties(ctx context.Context) (map[string][]string, error)
+    ListProperties(page, pageSize int) ([]models.Property, int64, error)
+    FetchAndStoreProperties() error
 }
 
 type PropertyService struct {
-    uniqueCities   map[string][]string
-    cityProperties map[string][]string
-    mutex          sync.RWMutex
-    httpClient     *http.Client
-    rapidAPIKey    string
+    db          *gorm.DB
+    httpClient  *http.Client
+    rapidAPIKey string
 }
 
-func NewPropertyService(rapidAPIKey string) PropertyServiceInterface {
+// NewPropertyService creates a new PropertyService with db connection and API key
+func NewPropertyService(db *gorm.DB, rapidAPIKey string) PropertyServiceInterface {
     return &PropertyService{
-        uniqueCities:   make(map[string][]string),
-        cityProperties: make(map[string][]string),
-        httpClient:     &http.Client{},
-        rapidAPIKey:    rapidAPIKey,
+        db:          db,
+        httpClient:  &http.Client{},
+        rapidAPIKey: rapidAPIKey,
     }
 }
 
-// fetchPropertyData handles the API request and response parsing
-// func (s *PropertyService) fetchPropertyData(apiURL string) ([]models.Property, error) {
-//     req, err := http.NewRequest("GET", apiURL, nil)
-//     if err != nil {
-//         return nil, err
-//     }
+// ListProperties retrieves properties from the database with pagination
+func (s *PropertyService) ListProperties(page, pageSize int) ([]models.Property, int64, error) {
+    var properties []models.Property
+    var total int64
+    
+    if err := s.db.Model(&models.Property{}).Count(&total).Error; err != nil {
+        return nil, 0, err
+    }
+    
+    offset := (page - 1) * pageSize
+    err := s.db.Offset(offset).Limit(pageSize).Find(&properties).Error
+    if err != nil {
+        return nil, 0, err
+    }
+    
+    return properties, total, nil
+}
 
-//     req.Header.Add("x-rapidapi-host", "booking-com18.p.rapidapi.com")
-//     req.Header.Add("x-rapidapi-key", s.rapidAPIKey)
+// FetchAndStoreProperties fetches data from an external API and stores it in the database
+func (s *PropertyService) FetchAndStoreProperties() error {
+    cities := []string{"New York", "London", "Paris", "Tokyo"}
+    
+    for _, city := range cities {
+        properties, err := s.fetchPropertiesForCity(city)
+        if err != nil {
+            return fmt.Errorf("error fetching properties for %s: %v", city, err)
+        }
+        
+        for _, prop := range properties {
+            err := s.db.Where(models.Property{DestID: prop.DestID}).
+                Assign(prop).
+                FirstOrCreate(&prop).Error
+            
+            if err != nil {
+                return fmt.Errorf("error storing property %s: %v", prop.Name, err)
+            }
+        }
+    }
+    
+    return nil
+}
 
-//     resp, err := s.httpClient.Do(req)
-//     if err != nil {
-//         return nil, err
-//     }
-//     defer resp.Body.Close()
-
-//     body, err := io.ReadAll(resp.Body)
-//     if err != nil {
-//         return nil, err
-//     }
-
-//     if resp.StatusCode == 429 || strings.Contains(string(body), "Too many requests") {
-//         return nil, fmt.Errorf("rate limit exceeded")
-//     }
-
-//     var response struct {
-//         Data []struct {
-//             DestID   string `json:"dest_id"`
-//             Name     string `json:"name"`
-//             CityName string `json:"city_name"`
-//         } `json:"data"`
-//     }
-
-//     err = json.Unmarshal(body, &response)
-//     if err != nil {
-//         return nil, err
-//     }
-
-//     properties := make([]models.Property, 0, len(response.Data))
-//     for _, item := range response.Data {
-//         properties = append(properties, models.Property{
-//             DestID:   item.DestID,
-//             Name:     item.Name,
-//             CityName: item.CityName,
-//         })
-//     }
-
-//     return properties, nil
-// }
-func (s *PropertyService) fetchPropertyData(apiURL string) ([]models.Property, error) {
+// fetchPropertiesForCity fetches property data from an external API for a specific city
+func (s *PropertyService) fetchPropertiesForCity(city string) ([]models.Property, error) {
+    encodedQuery := url.QueryEscape(city)
+    apiURL := fmt.Sprintf("https://booking-com18.p.rapidapi.com/stays/auto-complete?query=%s", encodedQuery)
+    
     req, err := http.NewRequest("GET", apiURL, nil)
     if err != nil {
         return nil, err
     }
-
+    
     req.Header.Add("x-rapidapi-host", "booking-com18.p.rapidapi.com")
     req.Header.Add("x-rapidapi-key", s.rapidAPIKey)
-
+    
     resp, err := s.httpClient.Do(req)
     if err != nil {
         return nil, err
     }
     defer resp.Body.Close()
-
+    
     body, err := io.ReadAll(resp.Body)
     if err != nil {
         return nil, err
     }
-
-    if resp.StatusCode == 429 || strings.Contains(string(body), "Too many requests") {
-        return nil, fmt.Errorf("rate limit exceeded")
-    }
-
+    
     var response struct {
         Data []struct {
-            DestID string `json:"dest_id"`
-            Name   string `json:"name"`
-            CityID string  `json:"city_id"`
-
-            // Remove CityName from response struct if not needed
+            DestID   string `json:"dest_id"`
+            Name     string `json:"name"`
+            CityID   string `json:"city_id"`
+            CityName string `json:"city_name"`
         } `json:"data"`
     }
-
-    err = json.Unmarshal(body, &response)
-    if err != nil {
+    
+    if err := json.Unmarshal(body, &response); err != nil {
         return nil, err
     }
-
-    properties := make([]models.Property, 0, len(response.Data))
-    for _, item := range response.Data {
-        properties = append(properties, models.Property{
-            DestID: item.DestID,
-            Name:   item.Name,
-            CityID: item.CityID,
-            // Remove CityName if not part of your model
-        })
+    
+    properties := make([]models.Property, len(response.Data))
+    for i, item := range response.Data {
+        properties[i] = models.Property{
+            DestID:   item.DestID,
+            Name:     item.Name,
+            CityID:   item.CityID,
+            CityName: item.CityName,
+        }
     }
-
+    
     return properties, nil
 }
-func (s *PropertyService) GetAllProperties(ctx context.Context) (map[string][]string, error) {
-    propertyResults := make(chan struct {
-        City       models.CityKey
-        Properties []models.Property
-        Err        error
-    }, len(s.uniqueCities))
-    
-    var wg sync.WaitGroup
-    rateLimiter := ratelimiter.GetInstance()
-    
-    for country, cities := range s.uniqueCities {
-        for _, cityName := range cities {
-            wg.Add(1)
-            go func(city, country string) {
-                defer wg.Done()
-                
-                if err := rateLimiter.Wait(ctx); err != nil {
-                    propertyResults <- struct {
-                        City       models.CityKey
-                        Properties []models.Property
-                        Err        error
-                    }{
-                        City: models.CityKey{Name: city, Country: country},
-                        Err:  err,
-                    }
-                    return
-                }
-                
-                properties, err := s.fetchPropertiesWithRetry(ctx, city, country, 3)
-                propertyResults <- struct {
-                    City       models.CityKey
-                    Properties []models.Property
-                    Err        error
-                }{
-                    City:       models.CityKey{Name: city, Country: country},
-                    Properties: properties,
-                    Err:        err,
-                }
-            }(cityName, country)
-        }
-    }
-    
-    go func() {
-        wg.Wait()
-        close(propertyResults)
-    }()
-    
-    for result := range propertyResults {
-        if result.Err != nil {
-            logs.Error("Error fetching properties for %s, %s: %v",
-                result.City.Name, result.City.Country, result.Err)
-            continue
-        }
-        s.processPropertyResult(result)
-    }
-    
-    return s.cityProperties, nil
-}
-
-func (s *PropertyService) fetchPropertiesWithRetry(ctx context.Context, cityName, country string, maxRetries int) ([]models.Property, error) {
-    var lastErr error
-    for attempt := 0; attempt < maxRetries; attempt++ {
-        properties, err := s.fetchPropertiesForCity(ctx, cityName, country)
-        if err == nil {
-            return properties, nil
-        }
-        lastErr = err
-    }
-    return nil, fmt.Errorf("failed to fetch properties after %d attempts: %v", maxRetries, lastErr)
-}
-
-func (s *PropertyService) fetchPropertiesForCity(ctx context.Context, cityName, country string) ([]models.Property, error) {
-    uniqueProperties := make(map[string]models.Property)
-    searchQueries := []string{
-        cityName,
-        fmt.Sprintf("%s hotels", cityName),
-        fmt.Sprintf("%s accommodation", cityName),
-    }
-    
-    for _, query := range searchQueries {
-        encodedQuery := url.QueryEscape(query)
-        apiURL := fmt.Sprintf("https://booking-com18.p.rapidapi.com/stays/auto-complete?query=%s", encodedQuery)
-        properties, err := s.fetchPropertyData(apiURL)
-        if err != nil {
-            continue
-        }
-        for _, prop := range properties {
-            if prop.DestID != "" {
-                uniqueProperties[prop.DestID] = prop
-            }
-        }
-    }
-    
-    result := make([]models.Property, 0, len(uniqueProperties))
-    for _, prop := range uniqueProperties {
-        result = append(result, prop)
-    }
-    return result, nil
-}
-
-func (s *PropertyService) processPropertyResult(result struct {
-    City       models.CityKey
-    Properties []models.Property
-    Err        error
-}) {
-    if len(result.Properties) == 0 {
-        return
-    }
-    
-    s.mutex.Lock()
-    defer s.mutex.Unlock()
-    
-    s.cityProperties[result.City.Name] = []string{}
-    maxProperties := 20
-    if len(result.Properties) < maxProperties {
-        maxProperties = len(result.Properties)
-    }
-    
-    for _, prop := range result.Properties[:maxProperties] {
-        s.cityProperties[result.City.Name] = append(
-            s.cityProperties[result.City.Name],
-            prop.Name,
-        )
-    }
-}
 
 
-
-
-
+// // services/property_service.go
 // package services
 
 // import (
 //     "context"
+//     "encoding/json"
 //     "fmt"
+//     "io"
+//     "net/http"
 //     "net/url"
-//     "sync"
-    
 //     "backend_rental/models"
-//     "backend_rental/utils/ratelimiter"
-//     "github.com/beego/beego/v2/core/logs"
+//     "gorm.io/gorm"
 // )
 
-// type PropertyServiceInterface interface {
-//     GetAllProperties(ctx context.Context) (map[string][]string, error)
-// }
+// // type PropertyServiceInterface interface {
+// //     ListProperties(page, pageSize int) ([]models.Property, int64, error)
+// //     FetchAndStoreProperties() error
+// // }
 
 // type PropertyService struct {
-//     uniqueCities   map[string][]string
-//     cityProperties map[string][]string
-//     mutex          sync.RWMutex
+//     db          *gorm.DB
+//     httpClient  *http.Client
+//     rapidAPIKey string
 // }
 
-// func NewPropertyService() PropertyServiceInterface {
+// func NewPropertyService(rapidAPIKey string) PropertyServiceInterface {
 //     return &PropertyService{
-//         uniqueCities:   make(map[string][]string),
-//         cityProperties: make(map[string][]string),
+//         db:          database.GetDB(), // Make sure to implement database.GetDB()
+//         httpClient:  &http.Client{},
+//         rapidAPIKey: rapidAPIKey,
 //     }
 // }
 
-// func (s *PropertyService) GetAllProperties(ctx context.Context) (map[string][]string, error) {
-//     propertyResults := make(chan struct {
-//         City       models.CityKey
-//         Properties []models.Property
-//         Err        error
-//     }, len(s.uniqueCities))
+// // ListProperties retrieves properties from the database with pagination
+// func (s *PropertyService) ListProperties(page, pageSize int) ([]models.Property, int64, error) {
+//     var properties []models.Property
+//     var total int64
     
-//     var wg sync.WaitGroup
-//     rateLimiter := ratelimiter.GetInstance()
-    
-//     for country, cities := range s.uniqueCities {
-//         for _, cityName := range cities {
-//             wg.Add(1)
-//             go func(city, country string) {
-//                 defer wg.Done()
-                
-//                 if err := rateLimiter.Wait(ctx); err != nil {
-//                     propertyResults <- struct {
-//                         City       models.CityKey
-//                         Properties []models.Property
-//                         Err        error
-//                     }{
-//                         City: models.CityKey{Name: city, Country: country},
-//                         Err:  err,
-//                     }
-//                     return
-//                 }
-                
-//                 properties, err := s.fetchPropertiesWithRetry(ctx, city, country, 3)
-//                 propertyResults <- struct {
-//                     City       models.CityKey
-//                     Properties []models.Property
-//                     Err        error
-//                 }{
-//                     City:       models.CityKey{Name: city, Country: country},
-//                     Properties: properties,
-//                     Err:        err,
-//                 }
-//             }(cityName, country)
-//         }
+//     // Get total count of properties
+//     if err := s.db.Model(&models.Property{}).Count(&total).Error; err != nil {
+//         return nil, 0, err
 //     }
     
-//     go func() {
-//         wg.Wait()
-//         close(propertyResults)
-//     }()
+//     // Calculate offset
+//     offset := (page - 1) * pageSize
     
-//     for result := range propertyResults {
-//         if result.Err != nil {
-//             logs.Error("Error fetching properties for %s, %s: %v",
-//                 result.City.Name, result.City.Country, result.Err)
-//             continue
-//         }
-//         s.processPropertyResult(result)
+//     // Get properties with pagination
+//     err := s.db.Offset(offset).Limit(pageSize).Find(&properties).Error
+//     if err != nil {
+//         return nil, 0, err
 //     }
     
-//     return s.cityProperties, nil
+//     return properties, total, nil
 // }
 
-// func (s *PropertyService) fetchPropertiesWithRetry(ctx context.Context, cityName, country string, maxRetries int) ([]models.Property, error) {
-//     var lastErr error
-//     for attempt := 0; attempt < maxRetries; attempt++ {
-//         properties, err := s.fetchPropertiesForCity(ctx, cityName, country)
-//         if err == nil {
-//             return properties, nil
-//         }
-//         lastErr = err
-//     }
-//     return nil, fmt.Errorf("failed to fetch properties after %d attempts: %v", maxRetries, lastErr)
-// }
-
-// func (s *PropertyService) fetchPropertiesForCity(ctx context.Context, cityName, country string) ([]models.Property, error) {
-//     uniqueProperties := make(map[string]models.Property)
-//     searchQueries := []string{
-//         cityName,
-//         fmt.Sprintf("%s hotels", cityName),
-//         fmt.Sprintf("%s accommodation", cityName),
-//     }
+// // FetchAndStoreProperties fetches data from Booking.com API and stores in database
+// func (s *PropertyService) FetchAndStoreProperties() error {
+//     // Cities to fetch properties for
+//     cities := []string{"New York", "London", "Paris", "Tokyo"}
     
-//     for _, query := range searchQueries {
-//         encodedQuery := url.QueryEscape(query)
-//         apiURL := fmt.Sprintf("https://booking-com18.p.rapidapi.com/stays/auto-complete?query=%s", encodedQuery)
-//         properties, err := s.fetchPropertyData(ctx, apiURL)
+//     for _, city := range cities {
+//         properties, err := s.fetchPropertiesForCity(city)
 //         if err != nil {
-//             continue
+//             return fmt.Errorf("error fetching properties for %s: %v", city, err)
 //         }
+        
+//         // Store each property in database
 //         for _, prop := range properties {
-//             if prop.DestID != "" {
-//                 uniqueProperties[prop.DestID] = prop
+//             // Upsert - update if exists, insert if doesn't
+//             err := s.db.Where(models.Property{DestID: prop.DestID}).
+//                 Assign(prop).
+//                 FirstOrCreate(&prop).Error
+            
+//             if err != nil {
+//                 return fmt.Errorf("error storing property %s: %v", prop.Name, err)
 //             }
 //         }
 //     }
     
-//     result := make([]models.Property, 0, len(uniqueProperties))
-//     for _, prop := range uniqueProperties {
-//         result = append(result, prop)
-//     }
-//     return result, nil
+//     return nil
 // }
 
-// func (s *PropertyService) processPropertyResult(result struct {
-//     City       models.CityKey
-//     Properties []models.Property
-//     Err        error
-// }) {
-//     if len(result.Properties) == 0 {
-//         return
+// func (s *PropertyService) fetchPropertiesForCity(city string) ([]models.Property, error) {
+//     encodedQuery := url.QueryEscape(city)
+//     apiURL := fmt.Sprintf("https://booking-com18.p.rapidapi.com/stays/auto-complete?query=%s", encodedQuery)
+    
+//     req, err := http.NewRequest("GET", apiURL, nil)
+//     if err != nil {
+//         return nil, err
 //     }
     
-//     s.mutex.Lock()
-//     defer s.mutex.Unlock()
+//     req.Header.Add("x-rapidapi-host", "booking-com18.p.rapidapi.com")
+//     req.Header.Add("x-rapidapi-key", s.rapidAPIKey)
     
-//     s.cityProperties[result.City.Name] = []string{}
-//     maxProperties := 20
-//     if len(result.Properties) < maxProperties {
-//         maxProperties = len(result.Properties)
+//     resp, err := s.httpClient.Do(req)
+//     if err != nil {
+//         return nil, err
+//     }
+//     defer resp.Body.Close()
+    
+//     body, err := io.ReadAll(resp.Body)
+//     if err != nil {
+//         return nil, err
 //     }
     
-//     for _, prop := range result.Properties[:maxProperties] {
-//         s.cityProperties[result.City.Name] = append(
-//             s.cityProperties[result.City.Name],
-//             prop.Name,
-//         )
+//     var response struct {
+//         Data []struct {
+//             DestID   string `json:"dest_id"`
+//             Name     string `json:"name"`
+//             CityID   string `json:"city_id"`
+//             CityName string `json:"city_name"`
+//         } `json:"data"`
 //     }
+    
+//     if err := json.Unmarshal(body, &response); err != nil {
+//         return nil, err
+//     }
+    
+//     properties := make([]models.Property, len(response.Data))
+//     for i, item := range response.Data {
+//         properties[i] = models.Property{
+//             DestID:   item.DestID,
+//             Name:     item.Name,
+//             CityID:   item.CityID,
+//             CityName: item.CityName,
+//         }
+//     }
+    
+//     return properties, nil
 // }
